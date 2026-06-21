@@ -13,7 +13,7 @@ import http.server
 import urllib.parse
 import numpy as np
 from instruments import _backend as bk
-from instruments import awg, scope
+from instruments import awg, dmm, scope
 from experiments.analysis import (
     analyze_impedance_point,
     analyze_propagation_4ch,
@@ -95,6 +95,9 @@ class ExperimentAPI(http.server.SimpleHTTPRequestHandler):
 
         if path == "/api/panel/status":
             return _panel_status()
+
+        if path == "/api/dmm/status":
+            return {"ok": True, "dmm": dmm.status(params.get("port", [None])[0])}
 
         if path == "/api/awg/screenshot":
             return {"content_type": "image/png", "bytes": awg.screenshot()}
@@ -242,6 +245,12 @@ class ExperimentAPI(http.server.SimpleHTTPRequestHandler):
                 float(body.get("timeout", 5.0)))
             return {"ok": ok, "triggered": ok}
 
+        # ---- DMM: UT61E 万用表 ----
+        if path == "/api/dmm/read":
+            port = body.get("port") or None
+            reading = dmm.read_once(port, float(body.get("timeout", 2.0))).as_dict()
+            return {"ok": True, "valid": reading["data_valid"], "reading": reading}
+
         # ---- Scope: 配置 (只改提交字段) ----
         if path == "/api/scope/config":
             ch = int(body.get("channel", 1))
@@ -320,6 +329,15 @@ def _panel_status():
             "state_source": "instrument_query",
             "error": str(e)[:120],
             "channels": [{"channel": ch, "error": str(e)[:80]} for ch in range(1, 5)],
+        }
+    try:
+        out["dmm"] = dmm.status()
+    except Exception as e:
+        out["dmm"] = {
+            "online": False,
+            "configured": False,
+            "state_source": "serial",
+            "error": str(e)[:120],
         }
     return out
 

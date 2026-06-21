@@ -387,6 +387,9 @@ class ExperimentProfilesTest(unittest.TestCase):
 
         self.assertIn('id="awgChannels"', html)
         self.assertIn('id="scopeChannels"', html)
+        self.assertIn('id="dmmReadout"', html)
+        self.assertIn("/api/dmm/read", html)
+        self.assertIn("refreshDmmStatus", html)
         self.assertIn("renderAwgChannels", html)
         self.assertIn("renderScopeChannels", html)
         self.assertIn("/api/panel/status", html)
@@ -396,6 +399,36 @@ class ExperimentProfilesTest(unittest.TestCase):
         self.assertIn("/api/scope/screenshot", html)
         self.assertIn("CH1", html)
         self.assertIn("CH4", html)
+
+
+class DmmTest(unittest.TestCase):
+    def test_ut61e_parser_converts_frame_to_normalized_reading(self):
+        from instruments import dmm
+
+        # Range 1 for voltage means 2.2000 V full scale. Digits 12345 -> 1.2345 V.
+        frame = bytes([0x31, 0x31, 0x32, 0x33, 0x34, 0x35, 0x3B, 0x30, 0x30, 0x30, 0x3A, 0x30, 0x0D, 0x0A])
+        reading = dmm.parse_frame(frame, timestamp=123.0)
+
+        self.assertTrue(reading.data_valid)
+        self.assertAlmostEqual(reading.value, 1.2345)
+        self.assertEqual(reading.units, "V")
+        self.assertEqual(reading.display, "1.2345 V")
+        self.assertEqual(reading.mode, "V")
+        self.assertTrue(reading.dc)
+        self.assertTrue(reading.auto)
+        self.assertFalse(reading.ac)
+        self.assertEqual(reading.timestamp, 123.0)
+
+    def test_ut61e_status_reports_configured_port_without_opening_serial(self):
+        from instruments import dmm
+
+        with mock.patch.dict("os.environ", {"UT61E_PORT": "/dev/tty.usbserial-test"}), \
+             mock.patch.object(dmm, "candidate_ports", return_value=["/dev/tty.usbserial-test"]):
+            st = dmm.status()
+
+        self.assertTrue(st["configured"])
+        self.assertEqual(st["port"], "/dev/tty.usbserial-test")
+        self.assertIn("/dev/tty.usbserial-test", st["candidates"])
 
 
 class QBoundaryTest(unittest.TestCase):
@@ -646,6 +679,11 @@ class ApiContractTest(unittest.TestCase):
                  "channels": fake_channels,
                  "acquire_mode": "YT",
                  "trigger_status": "Trig'd",
+             }), \
+             mock.patch.object(web_server.dmm, "status", return_value={
+                 "online": False,
+                 "configured": True,
+                 "port": "/dev/tty.usbserial-test",
              }):
             out = handler._handle_get_api("/api/panel/status", {})
 
@@ -654,6 +692,36 @@ class ApiContractTest(unittest.TestCase):
         self.assertTrue(out["awg"]["channels"][0]["output"])
         self.assertEqual(len(out["scope"]["channels"]), 4)
         self.assertEqual(out["scope"]["state_source"], "instrument_query")
+        self.assertEqual(out["dmm"]["port"], "/dev/tty.usbserial-test")
+
+    def test_dmm_read_endpoint_uses_dmm_driver(self):
+        from experiments import web_server
+        from instruments.dmm import DMMReading
+
+        handler = self._handler()
+        fake = DMMReading(
+            value=0.5432,
+            units="V",
+            display="0.5432 V",
+            raw_digits="05432",
+            mode="V",
+            range_index=1,
+            dc=True,
+            ac=False,
+            auto=True,
+            hold=False,
+            relative=False,
+            low_battery=False,
+            data_valid=True,
+            overload=False,
+            timestamp=1.0,
+        )
+        with mock.patch.object(web_server.dmm, "read_once", return_value=fake) as read_once:
+            out = handler._handle_post("/api/dmm/read", {"port": "/dev/tty.usbserial-test", "timeout": 0.5})
+
+        read_once.assert_called_once_with("/dev/tty.usbserial-test", 0.5)
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["reading"]["display"], "0.5432 V")
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import sys
 from typing import Optional
 
@@ -113,6 +114,30 @@ def cmd_scope(args):
         print(scope.identity())
 
 
+def cmd_dmm(args):
+    from . import dmm
+    if args.action == "status":
+        st = dmm.status(args.port)
+        print(json.dumps(st, ensure_ascii=False, indent=2))
+    elif args.action == "read":
+        reading = dmm.read_once(args.port, args.timeout).as_dict()
+        print(json.dumps(reading, ensure_ascii=False, indent=2))
+    elif args.action == "monitor":
+        try:
+            while True:
+                reading = dmm.read_once(args.port, args.timeout)
+                print("%s  %s" % (time_str(reading.timestamp), reading.display), flush=True)
+                import time as _t
+                _t.sleep(args.interval)
+        except KeyboardInterrupt:
+            print()
+
+
+def time_str(timestamp: float) -> str:
+    import time as _t
+    return _t.strftime("%H:%M:%S", _t.localtime(timestamp))
+
+
 def main(argv=None):
     global _InstrumentError
     from ._backend import InstrumentError as _InstrumentError
@@ -139,6 +164,14 @@ def main(argv=None):
     p_sc.add_argument("--tdiv", help="时基 s/div (如 1m, 500u)")
     p_sc.add_argument("--coupling", choices=["AC", "DC"])
     p_sc.set_defaults(func=cmd_scope)
+
+    # DMM
+    p_dmm = sub.add_parser("dmm", help="UT61E 万用表")
+    p_dmm.add_argument("action", choices=["status", "read", "monitor"])
+    p_dmm.add_argument("--port", help="串口路径；也可用 UT61E_PORT 环境变量")
+    p_dmm.add_argument("--timeout", type=float, default=2.0, help="读取超时秒数")
+    p_dmm.add_argument("--interval", type=float, default=1.0, help="monitor 输出间隔秒数")
+    p_dmm.set_defaults(func=cmd_dmm)
 
     args = parser.parse_args(argv)
     try:

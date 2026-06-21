@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>仪器控制面板 - UTG962 + SDS824X HD</title>
+<title>仪器控制面板 - UTG962 + SDS824X HD + UT61E</title>
 <style>
 :root{--bg:#0d1b2a;--card:#152233;--card2:#1b2a3a;--line:#243447;--fg:#e0e6ed;--mut:#8a99a8;--blue:#4fc3f7;--red:#e94560;--green:#50fa7b;--yellow:#f1fa8c;--purple:#bd93f9}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 -apple-system,"PingFang SC",sans-serif;padding:12px}a{color:var(--blue);text-decoration:none}
@@ -13,10 +13,11 @@ input,select{background:var(--card2);border:1px solid var(--line);border-radius:
 .layout{display:grid;grid-template-columns:1fr 1.25fr;gap:12px;margin-top:12px}.section{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px}.section h2{margin:0 0 10px;font-size:15px;color:var(--blue);display:flex;justify-content:space-between;gap:10px}.hint{color:var(--mut);font-size:11px;line-height:1.5}.channel-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.scope-grid{grid-template-columns:repeat(4,minmax(180px,1fr))}
 .channel-card{background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:10px}.channel-card header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}.channel-title{font-weight:700}.state{font-size:11px;color:var(--mut)}.state.on{color:var(--green)}.state.err{color:var(--red)}
 .row{display:grid;grid-template-columns:58px minmax(0,1fr);gap:6px;align-items:center;margin:6px 0}.row label{color:var(--mut);font-size:12px}.row.two{grid-template-columns:58px 1fr 1fr}.btns{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.toggle{display:inline-flex;gap:5px;align-items:center;color:var(--mut)}.toggle input{min-width:auto}
+.dmm-panel{display:grid;grid-template-columns:minmax(220px,1fr) minmax(220px,1fr);gap:10px}.dmm-readout{background:#050b12;border:1px solid var(--line);border-radius:6px;min-height:96px;display:flex;align-items:center;justify-content:center;font:700 28px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--green);text-align:center;padding:12px}.dmm-meta{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--mut);word-break:break-all}
 .screens{display:grid;grid-template-columns:1fr 1fr;gap:10px}.screen-frame{aspect-ratio:16/9;background:#050b12;border:1px solid var(--line);border-radius:6px;display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--mut)}.screen-frame img{width:100%;height:100%;object-fit:contain}
 .wave{margin-top:12px}.ctrl{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:8px}.chbox{display:inline-flex;gap:4px;align-items:center;cursor:pointer}.sw{width:10px;height:10px;border-radius:2px}canvas{width:100%;height:320px;background:#08111c;border:1px solid var(--line);border-radius:5px;display:block}
 .toast{position:fixed;right:16px;bottom:16px;background:var(--card2);border:1px solid var(--line);padding:10px 14px;border-radius:7px;opacity:0;transition:.2s;max-width:360px;z-index:10}.toast.show{opacity:1}.toast.err{border-color:var(--red);color:var(--red)}.toast.ok{border-color:var(--green);color:var(--green)}
-@media(max-width:1200px){.layout{grid-template-columns:1fr}.scope-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:720px){.channel-grid,.scope-grid,.screens{grid-template-columns:1fr}}
+@media(max-width:1200px){.layout{grid-template-columns:1fr}.scope-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:720px){.channel-grid,.scope-grid,.screens,.dmm-panel{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -24,6 +25,7 @@ input,select{background:var(--card2);border:1px solid var(--line);border-radius:
   <h1>仪器控制面板</h1>
   <div class="stat"><span class="dot" id="dot-awg"></span>AWG <span class="idn" id="idn-awg">write-only</span></div>
   <div class="stat"><span class="dot" id="dot-scope"></span>Scope <span class="idn" id="idn-scope">-</span></div>
+  <div class="stat"><span class="dot" id="dot-dmm"></span>DMM <span class="idn" id="idn-dmm">UT61E</span></div>
   <div style="margin-left:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
     <button onclick="refreshPanelStatus()">刷新状态</button>
     <button onclick="captureAwgScreen()">抓 AWG 屏幕</button>
@@ -51,6 +53,21 @@ input,select{background:var(--card2);border:1px solid var(--line);border-radius:
     </div>
   </section>
 </div>
+
+<section class="section" style="margin-top:12px">
+  <h2>万用表 UT61E <span class="hint">慢速/DC/基础元件读数，串口 19200 7O1</span></h2>
+  <div class="dmm-panel">
+    <div>
+      <div class="row"><label>串口</label><input id="dmmPort" placeholder="/dev/tty.usbserial-xxxx 或留空用 UT61E_PORT"></div>
+      <div class="btns"><button class="primary" onclick="dmmRead()">读一次</button><button onclick="refreshDmmStatus()">刷新 DMM 状态</button></div>
+      <div class="hint" id="dmmHint" style="margin-top:8px">用于电阻、电压、二极管压降、电容等低速读数；高速过程仍由 Scope 采集。</div>
+    </div>
+    <div>
+      <div class="dmm-readout" id="dmmReadout">未读取</div>
+      <div class="dmm-meta" id="dmmMeta">-</div>
+    </div>
+  </div>
+</section>
 
 <section class="section" style="margin-top:12px">
   <h2>仪器屏幕截图 <span class="hint">截图独立执行，方便核对真实面板</span></h2>
@@ -120,12 +137,48 @@ function renderScopeChannels(channels){
 
 function refreshPanelStatus(){
   getJSON('/api/panel/status').then(function(d){
-    var awg=d.awg||{}, sc=d.scope||{};
+    var awg=d.awg||{}, sc=d.scope||{}, dm=d.dmm||{};
     $('dot-awg').className='dot '+(awg.online?'on':'off');$('idn-awg').textContent=(awg.id||'write-only')+' / '+(awg.state_source||'');
     $('dot-scope').className='dot '+(sc.online?'on':'off');$('idn-scope').textContent=sc.online?(sc.id||'在线'):(sc.error||'离线');
+    renderDmmStatus(dm);
     renderAwgChannels(awg.channels);renderScopeChannels(sc.channels);
     toast('状态已刷新','ok');
   }).catch(function(e){toast('状态刷新失败: '+e.message,'err')});
+}
+
+function renderDmmStatus(dm){
+  dm=dm||{};
+  $('dot-dmm').className='dot '+(dm.online?'on':(dm.configured?'':'off'));
+  $('idn-dmm').textContent=dm.port||'UT61E 未配置串口';
+  if(dm.port&&!v('dmmPort'))$('dmmPort').value=dm.port;
+  var candidates=(dm.candidates||[]).join(' ');
+  $('dmmHint').textContent=dm.note||('候选串口: '+(candidates||'未发现'));
+}
+
+function refreshDmmStatus(){
+  var port=v('dmmPort');
+  getJSON('/api/dmm/status'+(port?'?port='+encodeURIComponent(port):'')).then(function(d){
+    renderDmmStatus(d.dmm||{});
+    toast('DMM 状态已刷新','ok');
+  }).catch(function(e){toast('DMM 状态失败: '+e.message,'err')});
+}
+
+function dmmRead(){
+  var port=v('dmmPort').trim();
+  $('dmmReadout').textContent='读取中...';
+  api('/api/dmm/read',{port:port||null,timeout:2}).then(function(d){
+    var r=d.reading||{};
+    $('dot-dmm').className='dot on';
+    $('idn-dmm').textContent=port||'UT61E';
+    $('dmmReadout').textContent=r.display||'-';
+    $('dmmMeta').textContent=[r.mode,r.dc?'DC':'',r.ac?'AC':'',r.auto?'AUTO':'',r.hold?'HOLD':'',r.low_battery?'LOW BAT':''].filter(Boolean).join(' / ')||'-';
+    toast('DMM 读数完成','ok');
+  }).catch(function(e){
+    $('dot-dmm').className='dot off';
+    $('dmmReadout').textContent='读取失败';
+    $('dmmMeta').textContent=e.message;
+    toast('DMM 读取失败: '+e.message,'err');
+  });
 }
 
 function awgBody(ch){var body={channel:ch,wave:v('awg_wave_'+ch)};var fields={freq:'freq',amp:'amp',offset:'offset',load:'load'};Object.keys(fields).forEach(function(k){var n=parseSI(v('awg_'+k+'_'+ch));if(n!=null)body[fields[k]]=n});return body}

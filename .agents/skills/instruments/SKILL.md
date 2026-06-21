@@ -1,9 +1,9 @@
 ---
 name: instruments
-description: 操作 UTG962 信号发生器 + SDS824X HD 示波器（USB 连接）。当用户要控制信号发生器、示波器、测量波形/频率/幅度、抓取波形、截图、或测量线圈/谐振回路的 Q 值时使用此 skill。
+description: 操作 UTG962 信号发生器 + SDS824X HD 示波器 + UT61E 万用表。当用户要控制信号发生器、示波器、万用表、测量波形/频率/幅度/低速读数、抓取波形、截图、或测量线圈/谐振回路的 Q 值时使用此 skill。
 ---
 
-# 仪表控制 Skill (UTG962 + SDS824X HD)
+# 仪表控制 Skill (UTG962 + SDS824X HD + UT61E)
 
 ## 环境准备
 
@@ -15,17 +15,17 @@ source .venv/bin/activate
 ## 核心库
 
 ```python
-from instruments import awg, scope           # 仪器驱动
+from instruments import awg, scope, dmm      # 仪器驱动
 from experiments.q_measure import measure_q   # Q 值实验
 ```
 
 CLI 入口：
-- `python -m instruments.cli awg|scope ...`（仪器控制）
+- `python -m instruments.cli awg|scope|dmm ...`（仪器控制）
 - `python -m experiments.cli q-measure|q-sweep ...`（实验）
 
 ---
 
-## 两台仪器的关键事实
+## 仪器关键事实
 
 1. **两台都是 USBTMC**，pyvisa-py + libusb，无需 NI-VISA
 2. **用精确资源串手动打开**（`list_resources()` 发现不到）：
@@ -36,6 +36,7 @@ CLI 入口：
 5. **示波器电压测量 SCPI 超时**，幅度一律从波形自算 (`waveform_stats`)
 6. **波形换算**：`V = int8(code) × (vdiv / code_per_div_8bit) - offset`，PREAMBLE 读取 `code_per_div/adc_bits`
 7. **读波形冻结采集**：`:WAVeform:DATA?` 使示波器 STOP，`get_waveform()` 已内置恢复
+8. **UT61E 走串口而不是 USBTMC**：`19200 7O1`，`DTR=1`、`RTS=0`，默认从 `UT61E_PORT` 环境变量找端口
 
 ---
 
@@ -123,6 +124,29 @@ python -m instruments.cli scope stats -c 1
 python -m instruments.cli scope freq -c 1
 python -m instruments.cli scope screenshot --path output/screen.png
 python -m instruments.cli scope waveform --path output/wave.csv -c 1
+```
+
+---
+
+## UT61E 万用表
+
+适合做低速/DC/基础元件辅助读数：电阻、直流电压、二极管压降、电容等。高速波形、相位、Q、TDR 仍由示波器完成。
+
+```bash
+export UT61E_PORT=/dev/tty.usbserial-xxxx
+python -m instruments.cli dmm status
+python -m instruments.cli dmm read
+python -m instruments.cli dmm monitor --interval 1
+```
+
+Python:
+
+```bash
+python -c "
+from instruments import dmm
+r = dmm.read_once()
+print(r.display)
+"
 ```
 
 ---

@@ -11,8 +11,8 @@
 - 实验记录页：`http://localhost:8052/records.html`
 - AWG/Scope 预设、Scope Auto Set、AWG/Scope 屏幕截图
 - Scope 多通道控制与状态刷新
-- UT61E 万用表单次读数与串口状态显示，用于低速/DC/基础元件读数
-- UT612 LCR 电桥单次读数与 HID 状态显示，用于 L/C/R/Q/ESR/theta 元件标定
+- UT61E 万用表与 UT612 LCR 电桥各自独立的小面板，并排显示单次读数和连接状态
+- UT61E 用于低速/DC/基础元件读数；UT612 用于 L/C/R/Q/ESR/theta 元件标定
 - CSV/JSON 本地实验记录导出
 - 无数据库，实验记录保存在浏览器 `localStorage`
 
@@ -73,6 +73,11 @@
 
 AWG 和 Scope 是 USBTMC，用 `pyvisa-py + libusb` 控制，**无需 NI-VISA**。UT61E 通过串口读取，参数为 `19200 bps / 7 data bits / odd parity / 1 stop bit`，`DTR=1`、`RTS=0`。UT612 不是普通串口，它通过 Silicon Labs CP2110 HID 桥接芯片读取，Python 侧使用 `hidapi`。
 
+UT612 的 Python 驱动参考了两个开源逆向实现：
+
+- [`heyalexej/rusty-UT612`](https://github.com/heyalexej/rusty-UT612)：CP2110 HID 配置、17 字节帧读取和现代 Rust 解码结构。
+- [`optisimon/UT612-linux-software`](https://github.com/optisimon/UT612-linux-software)：Linux HID 访问、单位/状态码、theta/ESR/Q 等历史样本和边界情况。
+
 ## 安装
 
 ```bash
@@ -106,6 +111,8 @@ python -c 'from experiments.web_server import main; main(8052)'
 - 实验记录：`http://localhost:8052/records.html`
 
 如果修改了 `experiments/profiles.py`，需要重启 Web 服务，因为实验配置是 Python 模块加载进内存的。
+
+Web 静态文件基于 `experiments/web_server.py` 所在目录解析，不依赖启动命令的当前工作目录；`GET` 和 `HEAD` 都能正确返回面板页面。
 
 ## CLI 用法
 

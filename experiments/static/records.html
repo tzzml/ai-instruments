@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>实验记录</title>
+<style>
+body{margin:0;background:#f4f6f8;color:#17212b;font:14px/1.55 -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif}
+main{max-width:1180px;margin:0 auto;padding:18px}
+a{color:#087f8c;text-decoration:none}button{border:1px solid #d8dee6;background:#fff;border-radius:6px;padding:7px 11px;cursor:pointer}
+.top{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:14px}.panel{background:#fff;border:1px solid #d8dee6;border-radius:8px;padding:12px}
+table{width:100%;border-collapse:collapse;font-size:12px}th,td{border-bottom:1px solid #d8dee6;padding:8px 7px;text-align:left;vertical-align:top}th{color:#637083;background:#f8fafc}
+.mut{color:#637083}.actions{display:flex;gap:8px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<main>
+  <div class="top">
+    <div><h1 style="margin:0;font-size:22px">实验记录</h1><div class="mut">来自浏览器本地记录，可导出 CSV/JSON。</div></div>
+    <div class="actions"><a href="/">返回工作台</a><button onclick="exportJSON()">导出 JSON</button><button onclick="exportCSV()">导出 CSV</button><button onclick="clearRecords()">清空</button></div>
+  </div>
+  <section class="panel">
+    <table>
+      <thead><tr><th>时间</th><th>实验</th><th>器材</th><th>类型</th><th>参数</th><th>结果</th><th>状态</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </section>
+</main>
+<script>
+var key='em_lab_records';
+function records(){try{return JSON.parse(localStorage.getItem(key)||'[]')}catch(e){return[]}}
+function compact(o){return Object.keys(o||{}).filter(function(k){return o[k]!==undefined&&o[k]!==null&&o[k]!==''}).map(function(k){return k+'='+o[k]}).slice(0,10).join('<br>')}
+function render(){var rs=records();document.getElementById('rows').innerHTML=rs.length?rs.map(function(r){return '<tr><td>'+r.time+'</td><td>'+r.module+'</td><td>'+r.profile+'</td><td>'+r.experiment+'</td><td>'+compact(r.params)+'</td><td>'+compact(r.metrics)+'</td><td>'+(r.valid?'有效':'无效')+'</td></tr>'}).join(''):'<tr><td colspan="7" class="mut">还没有记录。</td></tr>'}
+function download(name,text){var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'text/plain'}));a.download=name;a.click();URL.revokeObjectURL(a.href)}
+function csv(s){return '"'+String(s).replace(/"/g,'""')+'"'}
+function exportJSON(){download('em-lab-records.json',JSON.stringify(records(),null,2))}
+function exportCSV(){var out=['time,module,profile,experiment,params,metrics,valid'];records().forEach(function(r){out.push([r.time,r.module,r.profile,r.experiment,JSON.stringify(r.params),JSON.stringify(r.metrics),r.valid].map(csv).join(','))});download('em-lab-records.csv',out.join('\n'))}
+function clearRecords(){localStorage.removeItem(key);render()}
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>仪器控制面板 — UTG962 + SDS824X HD</title>
+<style>
+  :root{
+    --bg:#0d1b2a; --card:#152233; --card2:#1b2a3a; --line:#243447;
+    --fg:#e0e6ed; --mut:#8a99a8; --blue:#4fc3f7; --red:#e94560;
+    --green:#50fa7b; --yellow:#f1fa8c; --purple:#bd93f9;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--fg);font-family:-apple-system,"PingFang SC",sans-serif;font-size:13px;padding:12px}
+  a{color:var(--blue);text-decoration:none}
+  h1{font-size:17px;font-weight:600;padding:8px 0}
+  .top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding-bottom:10px;border-bottom:1px solid var(--line)}
+  .stat{display:flex;align-items:center;gap:6px;font-size:12px}
+  .dot{width:10px;height:10px;border-radius:50%;background:#555;display:inline-block}
+  .dot.on{background:var(--green);box-shadow:0 0 6px var(--green)}
+  .dot.off{background:var(--red)}
+  .idn{color:var(--mut);font-size:11px;font-family:monospace}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+  @media(max-width:820px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px}
+  .card h2{font-size:14px;color:var(--blue);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+  .card h2 .tag{font-size:10px;color:var(--mut);font-weight:400}
+  .row{display:flex;align-items:center;gap:8px;margin:6px 0;flex-wrap:wrap}
+  .row label{width:72px;color:var(--mut);font-size:12px}
+  .row input,.row select{flex:1;min-width:90px;background:var(--card2);border:1px solid var(--line);color:var(--fg);
+    padding:5px 8px;border-radius:4px;font-size:12px;font-family:monospace}
+  .row input:focus,.row select:focus{outline:none;border-color:var(--blue)}
+  .row .unit{color:var(--mut);font-size:11px;width:auto}
+  .btns{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+  button{background:var(--card2);border:1px solid var(--line);color:var(--fg);padding:7px 14px;border-radius:4px;
+    cursor:pointer;font-size:12px;transition:.15s;font-family:inherit}
+  button:hover{border-color:var(--blue);color:var(--blue)}
+  button.primary{background:var(--blue);color:#001220;border-color:var(--blue);font-weight:600}
+  button.primary:hover{filter:brightness(1.1);color:#001220}
+  button.danger{border-color:var(--red);color:var(--red)}
+  button.danger.on{background:var(--red);color:#fff}
+  button.warn{border-color:var(--yellow);color:var(--yellow)}
+  .toggle{display:inline-flex;align-items:center;gap:5px;cursor:pointer}
+  .toggle input{width:auto;flex:none}
+  .wave{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;margin-top:12px}
+  .wave .ctrl{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:8px}
+  .chbox{display:inline-flex;align-items:center;gap:4px;font-size:12px;cursor:pointer}
+  .chbox .sw{width:10px;height:10px;border-radius:2px;display:inline-block}
+  canvas{background:#08111c;border:1px solid var(--line);border-radius:4px;width:100%;display:block}
+  .toast{position:fixed;bottom:16px;right:16px;background:var(--card2);border:1px solid var(--line);
+    padding:10px 14px;border-radius:6px;font-size:12px;opacity:0;transition:.3s;max-width:320px;z-index:99}
+  .toast.show{opacity:1}
+  .toast.err{border-color:var(--red);color:var(--red)}
+  .toast.ok{border-color:var(--green);color:var(--green)}
+  .hint{color:var(--mut);font-size:11px;margin-top:6px;line-height:1.5}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <h1>🎛 仪器控制面板</h1>
+  <div class="stat"><span class="dot" id="dot-awg"></span>AWG <span class="idn" id="idn-awg">—</span></div>
+  <div class="stat"><span class="dot" id="dot-scope"></span>Scope <span class="idn" id="idn-scope">—</span></div>
+  <div style="margin-left:auto">
+    <button class="danger" onclick="resetAll()" style="font-weight:600;padding:5px 12px">↻ 重置仪器</button>
+    <a href="/">← 返回实验平台</a> · <a href="javascript:refreshStatus()">刷新状态</a>
+  </div>
+</div>
+
+<div class="grid">
+  <!-- ============ AWG ============ -->
+  <div class="card">
+    <h2>⚡ 信号发生器 UTG962 <span class="tag">CH<span id="awg-ch-lbl">1</span></span></h2>
+    <div class="row"><label>通道</label>
+      <select id="awg-ch" onchange="document.getElementById('awg-ch-lbl').textContent=this.value">
+        <option value="1">CH1</option><option value="2">CH2</option></select></div>
+    <div class="row"><label>波形</label>
+      <select id="awg-wave">
+        <option value="sine">正弦 sine</option><option value="square">方波 square</option>
+        <option value="ramp">三角/斜波 ramp</option><option value="pulse">脉冲 pulse</option>
+        <option value="noise">噪声 noise</option><option value="dc">直流 dc</option></select></div>
+    <div class="row"><label>频率</label><input id="awg-freq" value="1k" placeholder="1k / 2.5M"><span class="unit">Hz</span></div>
+    <div class="row"><label>幅度</label><input id="awg-amp" value="2" placeholder="Vpp"><span class="unit">Vpp</span></div>
+    <div class="row"><label>偏置</label><input id="awg-offset" value="0" placeholder="V"><span class="unit">V</span></div>
+    <div class="row"><label>占空比</label><input id="awg-duty" placeholder="50"><span class="unit">%</span></div>
+    <div class="row"><label>负载</label><input id="awg-load" value="10000" placeholder="Ω (高阻填10000)"><span class="unit">Ω</span></div>
+    <div class="btns">
+      <button class="primary" onclick="awgApply()">应用参数</button>
+      <button id="btn-out" class="danger" onclick="awgToggleOut()">开启输出</button>
+      <button onclick="awgOff()">关输出</button>
+    </div>
+    <div class="hint">数值支持 SI 后缀: 1k / 2.5M / 500m / 20u。负载高阻填 10000。</div>
+  </div>
+
+  <!-- ============ Scope ============ -->
+  <div class="card">
+    <h2>📈 示波器 SDS824X HD <span class="tag">C<span id="sc-ch-lbl">1</span></span></h2>
+    <div class="row"><label>通道</label>
+      <select id="sc-ch" onchange="document.getElementById('sc-ch-lbl').textContent=this.value">
+        <option>1</option><option>2</option><option>3</option><option>4</option></select>
+      <label class="toggle"><input type="checkbox" id="sc-on" checked>开启</label></div>
+    <div class="row"><label>V/div</label><input id="sc-vdiv" value="500m" placeholder="500m / 1"><span class="unit">V/div</span></div>
+    <div class="row"><label>时基</label><input id="sc-tdiv" value="1m" placeholder="1m / 500u"><span class="unit">s/div</span></div>
+    <div class="row"><label>耦合</label>
+      <select id="sc-coupling"><option>DC</option><option>AC</option><option>GND</option></select>
+      <span class="unit" style="margin-left:8px">采集</span>
+      <select id="sc-acq"><option>YT</option><option>ROLL</option><option>XY</option></select></div>
+    <div class="row"><label>触发电平</label><input id="sc-trig" value="0" placeholder="V"><span class="unit">V</span>
+      <select id="sc-slope"><option value="POS">↑上升</option><option value="NEG">↓下降</option></select></div>
+    <div class="btns">
+      <button class="primary" onclick="scopeConfig()">应用配置</button>
+      <button onclick="scopeRun()">▶ RUN</button>
+      <button class="warn" onclick="scopeStop()">⏸ STOP</button>
+      <button onclick="scopeSingle()">● SINGLE</button>
+    </div>
+    <div class="hint">ROLL = 秒级慢速滚动采集; SINGLE = 单次瞬态捕获 (捕获后自动读一帧波形)。</div>
+  </div>
+</div>
+
+<!-- ============ 波形显示 ============ -->
+<div class="wave">
+  <div class="ctrl">
+    <b style="color:var(--blue)">实时波形</b>
+    <label class="chbox"><input type="checkbox" class="chsel" value="1" checked><span class="sw" style="background:#4fc3f7"></span>CH1</label>
+    <label class="chbox"><input type="checkbox" class="chsel" value="2"><span class="sw" style="background:#50fa7b"></span>CH2</label>
+    <label class="chbox"><input type="checkbox" class="chsel" value="3"><span class="sw" style="background:#f1fa8c"></span>CH3</label>
+    <label class="chbox"><input type="checkbox" class="chsel" value="4"><span class="sw" style="background:#bd93f9"></span>CH4</label>
+    <button onclick="refreshWave()">📥 读一帧</button>
+    <label class="toggle"><input type="checkbox" id="auto" onchange="toggleAuto()"> 自动刷新</label>
+    <select id="rate"><option value="1000">1s</option><option value="500" selected>0.5s</option><option value="200">0.2s</option><option value="2000">2s</option></select>
+    <button onclick="screenshot()">📷 截图</button>
+    <img id="shot" style="display:none;max-height:60px;border:1px solid var(--line);border-radius:4px;margin-left:8px">
+    <span id="wave-info" style="color:var(--mut);font-size:11px;margin-left:auto"></span>
+  </div>
+  <canvas id="wave-canvas" height="320"></canvas>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ====== 工具 ======
+function parseSI(s){ // "1k"->1000, "500m"->0.5
+  if(typeof s==='number')return s;
+  s=(''+s).trim(); if(!s)return null;
+  var m={G:1e9,M:1e6,K:1e3,k:1e3,m:1e-3,u:1e-6,U:1e-6,n:1e-9,N:1e-9,p:1e-12,P:1e-12};
+  var last=s[s.length-1];
+  if(last in m)return parseFloat(s.slice(0,-1))*m[last];
+  return parseFloat(s);
+}
+function toast(msg,kind){
+  var t=document.getElementById('toast');
+  t.textContent=msg; t.className='toast show '+(kind||'');
+  clearTimeout(t._t); t._t=setTimeout(function(){t.className='toast'},2200);
+}
+function api(path, body){
+  return fetch(path,{method:'POST','Content-Type':'application/json',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})})
+    .then(function(r){return r.json()}).then(function(d){
+      if(d && d.ok===false) throw new Error(d.error||'操作失败');
+      return d;
+    });
+}
+function val(id){return document.getElementById(id).value;}
+function setOut(on){
+  var b=document.getElementById('btn-out');
+  b.textContent=on?'关闭输出':'开启输出';
+  b.classList.toggle('on',on);
+}
+
+// ====== 状态 ======
+function resetAll(){
+  if(!confirm('确认把 AWG + 示波器重置到初始状态?\n(AWG: 关输出/正弦1kHz/2Vpp; 示波器: STOP/YT/AUTO/CH1·DC·1V·div·1ms)'))return;
+  toast('重置中…');
+  api('/api/reset',{}).then(function(d){
+    var a=d.awg||{}, s=d.scope||{};
+    setOut(false);
+    refreshStatus();
+    refreshWave();
+    toast('重置完成 — AWG '+(a.ok?'✓':'✗')+'  示波器 '+(s.ok?'✓':'✗'), (a.ok&&s.ok)?'ok':'err');
+  }).catch(function(e){toast('重置失败: '+e.message,'err')});
+}
+function refreshStatus(){
+  fetch('/api/status').then(function(r){return r.json()}).then(function(d){
+    ['awg','scope'].forEach(function(k){
+      var st=d[k]||{};
+      document.getElementById('dot-'+k).className='dot '+(st.online?'on':'off');
+      document.getElementById('idn-'+k).textContent=st.online?(st.id||'在线'):(st.error||'离线');
+    });
+    toast('状态已刷新','ok');
+  }).catch(function(e){toast('状态查询失败: '+e.message,'err')});
+}
+
+// ====== AWG ======
+function awgApply(){
+  var ch=+val('awg-ch'), body={channel:ch, wave:val('awg-wave'), load:+val('awg-load')};
+  var f=parseSI(val('awg-freq'));   if(f!=null)body.freq=f;
+  var a=parseSI(val('awg-amp'));    if(a!=null)body.amp=a;
+  var o=parseSI(val('awg-offset')); if(o!=null)body.offset=o;
+  var du=parseSI(val('awg-duty'));  if(du!=null)body.duty=du;
+  api('/api/awg/configure',body).then(function(){toast('AWG 参数已应用','ok')})
+    .catch(function(e){toast('AWG 设置失败: '+e.message,'err')});
+}
+function awgToggleOut(){
+  var b=document.getElementById('btn-out');
+  var on=!b.classList.contains('on');
+  api('/api/awg/output',{channel:+val('awg-ch'),on:on}).then(function(){setOut(on);toast(on?'输出已开':'输出已关','ok')})
+    .catch(function(e){toast(e.message,'err')});
+}
+function awgOff(){api('/api/awg/off',{channel:+val('awg-ch')}).then(function(){setOut(false);toast('输出已关','ok')});}
+
+// ====== Scope ======
+function scopeConfig(){
+  var ch=+val('sc-ch'), body={channel:ch, on:document.getElementById('sc-on').checked,
+    coupling:val('sc-coupling'), acquire_mode:val('sc-acq')};
+  var v=parseSI(val('sc-vdiv')); if(v!=null)body.vdiv=v;
+  var t=parseSI(val('sc-tdiv')); if(t!=null)body.tdiv=t;
+  var tr=parseSI(val('sc-trig')); if(tr!=null){body.trig_level=tr; body.trig_slope=val('sc-slope');}
+  api('/api/scope/config',body).then(function(){toast('示波器配置已应用','ok')})
+    .catch(function(e){toast(e.message,'err')});
+}
+function scopeRun(){api('/api/scope/run',{}).then(function(){toast('▶ RUN','ok')}).catch(function(e){toast(e.message,'err')});}
+function scopeStop(){api('/api/scope/stop',{}).then(function(){toast('⏸ STOP','ok')}).catch(function(e){toast(e.message,'err')});}
+function scopeSingle(){
+  var ch=+val('sc-ch'), lvl=parseSI(val('sc-trig'))||0;
+  toast('等待单次触发…');
+  api('/api/scope/single',{channel:ch,level:lvl,slope:val('sc-slope'),timeout:5}).then(function(d){
+    toast(d.triggered?'已捕获一帧':'超时未触发', d.triggered?'ok':'err');
+    if(d.triggered)refreshWave();
+  }).catch(function(e){toast(e.message,'err')});
+}
+
+// ====== 波形绘制 ======
+var COLORS={1:'#4fc3f7',2:'#50fa7b',3:'#f1fa8c',4:'#bd93f9'};
+function drawWave(chData){
+  var c=document.getElementById('wave-canvas'), W=c.clientWidth;
+  c.width=W*2; c.height=640;
+  var x=c.getContext('2d'); x.scale(2,2);
+  var H=320;
+  x.fillStyle='#08111c'; x.fillRect(0,0,W,H);
+  // 网格
+  x.strokeStyle='#15293d'; x.lineWidth=0.5;
+  for(var i=60;i<W;i+=40){x.beginPath();x.moveTo(i,0);x.lineTo(i,H);x.stroke()}
+  for(var j=10;j<H;j+=40){x.beginPath();x.moveTo(0,j);x.lineTo(W,j);x.stroke()}
+  // 中线
+  x.strokeStyle='#243447'; x.beginPath();x.moveTo(60,H/2);x.lineTo(W-10,H/2);x.stroke();
+  x.fillStyle='#8a99a8'; x.font='11px monospace';
+  x.fillText('0V',40,H/2+4); x.fillText('V',6,16); x.fillText('t →',W-30,H-6);
+  if(!chData||Object.keys(chData).length===0){
+    x.fillStyle='#8a99a8'; x.font='13px sans-serif'; x.textAlign='center';
+    x.fillText('勾选通道并点 "读一帧"',W/2,H/2-10); x.textAlign='left'; return;
+  }
+  // 求全局电压范围
+  var vmin=Infinity,vmax=-Infinity;
+  Object.keys(chData).forEach(function(ch){
+    var v=chData[ch].voltage;
+    for(var i=0;i<v.length;i++){if(v[i]<vmin)vmin=v[i];if(v[i]>vmax)vmax=v[i]}
+  });
+  if(vmin===Infinity){vmin=-1;vmax=1;}
+  if(vmax-vmin<1e-9){vmax=vmin+1e-9;}
+  var pad=(vmax-vmin)*0.1; vmin-=pad; vmax+=pad;
+  var yOf=function(v){return 15+(H-50)*(1-(v-vmin)/(vmax-vmin));};
+  // 时间归一 (各通道时间轴一致, 取第一个)
+  var firstCh=Object.keys(chData)[0], t0=chData[firstCh].time;
+  var tmin=t0[0], tmax=t0[t0.length-1], span=tmax-tmin||1;
+  var xOf=function(t){return 60+(W-70)*(t-tmin)/span;};
+  Object.keys(chData).forEach(function(ch){
+    var t=chData[ch].time, v=chData[ch].voltage, col=COLORS[ch]||'#fff';
+    x.strokeStyle=col; x.lineWidth=1.4; x.beginPath();
+    for(var i=0;i<t.length;i++){ var px=xOf(t[i]),py=yOf(v[i]); i?x.lineTo(px,py):x.moveTo(px,py);}
+    x.stroke();
+  });
+  // 量程标注
+  x.fillStyle='#8a99a8'; x.font='11px monospace'; x.textAlign='right';
+  x.fillText(vmax.toFixed(3)+'V',54,20); x.fillText(vmin.toFixed(3)+'V',54,H-36);
+  x.textAlign='left';
+}
+function refreshWave(){
+  var chs=[].slice.call(document.querySelectorAll('.chsel:checked')).map(function(c){return c.value});
+  if(chs.length===0){toast('请勾选至少一个通道','err');return;}
+  fetch('/api/scope/waveforms?ch='+chs.join(',')+'&points=1500')
+    .then(function(r){return r.json()}).then(function(d){
+      var chData={}; d.channels=d.channels||{};
+      Object.keys(d.channels).forEach(function(k){
+        var c=d.channels[k]; chData[k]={time:c.time,voltage:c.voltage};
+      });
+      drawWave(chData);
+      var info=Object.keys(d.channels).map(function(k){
+        var c=d.channels[k]; return 'C'+k+': '+c.vpp.toFixed(3)+'Vpp / '+c.vrms.toFixed(3)+'Vrms';
+      }).join('  ·  ');
+      document.getElementById('wave-info').textContent=info+(d.sample_int?('  ·  Δt='+(d.sample_int*1e6).toFixed(2)+'µs'):'');
+    }).catch(function(e){toast('读波形失败: '+e.message,'err')});
+}
+function screenshot(){
+  document.getElementById('shot').src='/api/scope/screenshot?_='+Date.now();
+  document.getElementById('shot').style.display='inline-block';
+  toast('截图已刷新','ok');
+}
+// ====== 自动刷新 ======
+var autoTimer=null;
+function toggleAuto(){
+  if(document.getElementById('auto').checked){
+    var ms=+val('rate');
+    autoTimer=setInterval(refreshWave,ms);
+    refreshWave();
+    toast('自动刷新 '+(ms/1000)+'s','ok');
+  }else{clearInterval(autoTimer);autoTimer=null;toast('已停止自动刷新');}
+}
+document.getElementById('rate').onchange=function(){if(autoTimer){clearInterval(autoTimer);autoTimer=setInterval(refreshWave,+this.value);}};
+
+// 初始化
+refreshStatus();
+window.addEventListener('resize',function(){refreshWave();});
+setTimeout(refreshWave,500);
+</script>
+</body>
+</html>

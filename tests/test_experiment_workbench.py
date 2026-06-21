@@ -8,6 +8,14 @@ from pathlib import Path
 import numpy as np
 
 
+def _workbench_assets_text():
+    base = Path("experiments/static")
+    return "\n".join(
+        (base / name).read_text(encoding="utf-8")
+        for name in ("index.html", "app.css", "workbench.js")
+    )
+
+
 class ExperimentProfilesTest(unittest.TestCase):
     def test_profiles_include_available_materials_and_safety(self):
         from experiments.profiles import EXPERIMENT_PROFILES
@@ -20,6 +28,7 @@ class ExperimentProfilesTest(unittest.TestCase):
         self.assertIn("avalanche_pulser", keys)
         self.assertIn("awg_square_tdr_source", keys)
         self.assertIn("diode_detector_parts", keys)
+        self.assertIn("passive_impedance_parts", keys)
 
         nested = next(p for p in EXPERIMENT_PROFILES if p["key"] == "nested_coils_core")
         self.assertIn("原副边教学线圈", nested["name"])
@@ -31,6 +40,17 @@ class ExperimentProfilesTest(unittest.TestCase):
         self.assertIn("二极管", diode["name"])
         self.assertIn("检波", diode["summary"])
         self.assertTrue(diode["safety"])
+
+        passive = next(p for p in EXPERIMENT_PROFILES if p["key"] == "passive_impedance_parts")
+        self.assertIn("电感", passive["summary"])
+        self.assertIn("电容", passive["summary"])
+        self.assertIn("采样电阻", passive["summary"])
+
+        dipole = next(p for p in EXPERIMENT_PROFILES if p["key"] == "telescopic_dipole_pair")
+        self.assertIn("1.25 m", dipole["summary"])
+        self.assertEqual(dipole["recommended"]["arm_length_m"], 1.25)
+        self.assertEqual(dipole["recommended"]["frequency_start_hz"], 40e6)
+        self.assertEqual(dipole["recommended"]["frequency_stop_hz"], 60e6)
 
     def test_experiment_stations_are_independent_and_bind_materials(self):
         from experiments.profiles import EXPERIMENT_STATIONS
@@ -54,6 +74,22 @@ class ExperimentProfilesTest(unittest.TestCase):
         self.assertIn("standard_mw_test_loop", mw["materials"])
         self.assertIn("一米", "".join(mw["circuit"]))
 
+    def test_course_modules_follow_learning_path_order(self):
+        from experiments.profiles import COURSE_MODULES
+
+        self.assertEqual(
+            [
+                "rc_basics",
+                "passive_impedance",
+                "diode_detector",
+                "mw_resonance",
+                "coils_core",
+                "pulse_tdr",
+                "near_field_antennas",
+            ],
+            [m["key"] for m in COURSE_MODULES],
+        )
+
     def test_diode_detector_topic_is_split_into_leaf_experiments(self):
         from experiments.profiles import COURSE_MODULES, EXPERIMENT_STATIONS
 
@@ -73,6 +109,26 @@ class ExperimentProfilesTest(unittest.TestCase):
         self.assertEqual([1, 2], by_key["diode_va_curve"]["acquisition"]["scope"]["channels"])
         self.assertIn("diode_detector_parts", by_key["diode_am_detector"]["materials"])
         self.assertIn("AM", "".join(by_key["diode_am_detector"]["circuit"]))
+
+    def test_passive_impedance_topic_has_capacitor_inductor_and_rlc_experiments(self):
+        from experiments.profiles import COURSE_MODULES, EXPERIMENT_STATIONS
+
+        modules = {m["key"]: m for m in COURSE_MODULES}
+        self.assertIn("passive_impedance", modules)
+        self.assertIn("阻抗", modules["passive_impedance"]["goal"])
+
+        children = [s for s in EXPERIMENT_STATIONS if s["parent_key"] == "passive_impedance"]
+        self.assertEqual(
+            {"capacitor_impedance", "inductor_impedance", "rlc_impedance_phase"},
+            {s["key"] for s in children},
+        )
+        by_key = {s["key"]: s for s in children}
+        self.assertEqual("/api/exp/impedance-point", by_key["capacitor_impedance"]["api"])
+        self.assertEqual("impedance_point", by_key["inductor_impedance"]["experiment"])
+        for station in children:
+            self.assertIn("passive_impedance_parts", station["materials"])
+            self.assertIn("rsense_ohm", {p["id"] for p in station["parameters"]})
+            self.assertEqual(station["acquisition"]["scope"]["channels"], [1, 2])
 
     def test_middle_wave_topic_is_split_into_leaf_experiments(self):
         from experiments.profiles import EXPERIMENT_STATIONS
@@ -104,6 +160,38 @@ class ExperimentProfilesTest(unittest.TestCase):
         self.assertIn("velocity_factor", by_key["pulse_tdr_length"])
         self.assertNotEqual(by_key["mw_q_sweep"], by_key["pulse_tdr_length"])
 
+    def test_dipole_topic_targets_resonant_rf_field_experiments(self):
+        from experiments.profiles import COURSE_MODULES, EXPERIMENT_STATIONS
+
+        module = next(m for m in COURSE_MODULES if m["key"] == "near_field_antennas")
+        self.assertIn("60 MHz", module["goal"])
+
+        children = [s for s in EXPERIMENT_STATIONS if s["parent_key"] == "near_field_antennas"]
+        self.assertEqual(
+            {
+                "antenna_resonance_sweep",
+                "antenna_length_tuning",
+                "antenna_distance",
+                "antenna_polarization",
+            },
+            {s["key"] for s in children},
+        )
+
+        by_key = {s["key"]: s for s in children}
+        sweep = by_key["antenna_resonance_sweep"]
+        self.assertEqual("/api/exp/q-sweep", sweep["api"])
+        self.assertEqual("q_sweep", sweep["experiment"])
+        self.assertIn("40M", {p["default"] for p in sweep["parameters"]})
+        self.assertIn("60M", {p["default"] for p in sweep["parameters"]})
+        self.assertIn("arm_length_m", {p["id"] for p in sweep["parameters"]})
+        self.assertEqual(sweep["acquisition"]["scope"]["channels"], [1, 2])
+        self.assertIn("半波", sweep["goal"])
+
+        length = by_key["antenna_length_tuning"]
+        self.assertIn("arm_length_m", {p["id"] for p in length["parameters"]})
+        self.assertIn("谐振频率", "".join(length["circuit"]) + length["goal"])
+        self.assertIn("relative_db", {p["id"] for p in by_key["antenna_distance"]["parameters"]})
+
     def test_tdr_defaults_to_awg_square_edge_source(self):
         from experiments.profiles import EXPERIMENT_STATIONS
 
@@ -113,25 +201,61 @@ class ExperimentProfilesTest(unittest.TestCase):
         self.assertIn("慢边沿", tdr["goal"])
         self.assertNotEqual(tdr["acquisition"]["awg"].get("source"), "avalanche_pulser")
 
+    def test_pulse_topic_includes_four_point_propagation_experiment(self):
+        from experiments.profiles import EXPERIMENT_STATIONS
+
+        station = next(s for s in EXPERIMENT_STATIONS if s["key"] == "pulse_propagation_4ch")
+        self.assertEqual(station["parent_key"], "pulse_tdr")
+        self.assertEqual(station["experiment"], "propagation_4ch")
+        self.assertEqual(station["api"], "/api/exp/propagation-4ch")
+        self.assertEqual(station["acquisition"]["scope"]["channels"], [1, 2, 3, 4])
+        self.assertIn("0/10/20/30 m", station["goal"])
+        self.assertIn("tap_distances_m", {p["id"] for p in station["parameters"]})
+
     def test_static_workbench_keeps_materials_in_experiment_detail_not_sidebar(self):
         html = Path("experiments/static/index.html").read_text(encoding="utf-8")
 
         self.assertNotIn("本实验材料</h2>", html)
         self.assertIn('id="experimentMaterials"', html)
-        self.assertIn('class="childNav"', html)
+        self.assertIn('id="moduleNav"', html)
+        self.assertNotIn('id="moduleNav" class="childNav"', html)
+
+    def test_static_workbench_collapses_inactive_modules(self):
+        html = _workbench_assets_text()
+
+        self.assertIn("activeModuleKey", html)
+        self.assertIn("toggleModule", html)
+        self.assertIn("module-chevron", html)
+        self.assertNotIn("module-count", html)
+        self.assertNotIn("m.goal+'</small>'", html)
+        self.assertNotIn(".childNav{position:relative", html)
+        self.assertNotIn(".childNav button.active{background:#f7fbfc;border", html)
+        self.assertIn("group.style.display=currentStation&&currentStation.parent_key===m.key?'block':'none'", html)
 
     def test_static_workbench_has_dedicated_instrument_setup_panel(self):
-        html = Path("experiments/static/index.html").read_text(encoding="utf-8")
+        html = _workbench_assets_text()
 
         self.assertIn('id="instrumentSetup"', html)
         self.assertIn('id="awgSetup"', html)
         self.assertIn('id="scopeSetup"', html)
         self.assertIn("applyInstrumentSetup", html)
+        self.assertIn("scopeAutoset", html)
         self.assertIn("captureInstrumentScreens", html)
         self.assertIn("/api/awg/screenshot", html)
+        self.assertIn("/api/scope/autoset", html)
+
+    def test_static_workbench_uses_external_assets(self):
+        html = Path("experiments/static/index.html").read_text(encoding="utf-8")
+
+        self.assertIn('href="/app.css"', html)
+        self.assertIn('src="/workbench.js"', html)
+        self.assertNotIn("<style>", html)
+        self.assertNotIn("<script>\nvar modules", html)
+        self.assertTrue(Path("experiments/static/app.css").exists())
+        self.assertTrue(Path("experiments/static/workbench.js").exists())
 
     def test_static_workbench_separates_instrument_apply_from_screen_capture(self):
-        html = Path("experiments/static/index.html").read_text(encoding="utf-8")
+        html = _workbench_assets_text()
 
         self.assertIn("抓取仪器屏幕", html)
         apply_start = html.index("function applyInstrumentSetup")
@@ -140,7 +264,7 @@ class ExperimentProfilesTest(unittest.TestCase):
         self.assertNotIn("captureInstrumentScreens()", apply_function)
 
     def test_static_workbench_normalizes_instrument_screen_sizes(self):
-        html = Path("experiments/static/index.html").read_text(encoding="utf-8")
+        html = _workbench_assets_text()
 
         self.assertIn('class="screen-frame hint" id="awgScreen"', html)
         self.assertIn('class="screen-frame hint" id="scopeScreen"', html)
@@ -149,12 +273,36 @@ class ExperimentProfilesTest(unittest.TestCase):
         self.assertIn("object-fit:contain", html)
 
     def test_static_workbench_renders_diode_va_results(self):
-        html = Path("experiments/static/index.html").read_text(encoding="utf-8")
+        html = _workbench_assets_text()
 
         self.assertIn("diode_va", html)
         self.assertIn("/api/exp/diode-va", html)
         self.assertIn("drawDiodeVA", html)
         self.assertIn("二极管伏安", html)
+
+    def test_static_workbench_renders_impedance_experiments(self):
+        html = _workbench_assets_text()
+
+        self.assertIn("impedance_point", html)
+        self.assertIn("/api/exp/impedance-point", html)
+        self.assertIn("阻抗幅值", html)
+        self.assertIn("R_sense", html)
+
+    def test_static_workbench_renders_four_channel_propagation(self):
+        html = _workbench_assets_text()
+
+        self.assertIn("propagation_4ch", html)
+        self.assertIn("/api/exp/propagation-4ch", html)
+        self.assertIn("传播速度", html)
+        self.assertIn("0/10/20/30m", html)
+
+    def test_static_workbench_renders_rf_dipole_schematics(self):
+        html = _workbench_assets_text()
+
+        self.assertIn("antenna_resonance_sweep", html)
+        self.assertIn("半波谐振", html)
+        self.assertIn("长度调谐", html)
+        self.assertIn("场强/dB", html)
 
     def test_static_workbench_moves_full_records_to_separate_page(self):
         html = Path("experiments/static/index.html").read_text(encoding="utf-8")
@@ -163,6 +311,21 @@ class ExperimentProfilesTest(unittest.TestCase):
         self.assertNotIn('<section class="band records">', html)
         self.assertIn("/records.html", html)
         self.assertTrue(records.exists())
+
+    def test_panel_controls_multiple_channels_and_screenshots(self):
+        html = Path("experiments/static/panel.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="awgChannels"', html)
+        self.assertIn('id="scopeChannels"', html)
+        self.assertIn("renderAwgChannels", html)
+        self.assertIn("renderScopeChannels", html)
+        self.assertIn("/api/panel/status", html)
+        self.assertIn("/api/scope/autoset", html)
+        self.assertIn("scopeAutoset", html)
+        self.assertIn("/api/awg/screenshot", html)
+        self.assertIn("/api/scope/screenshot", html)
+        self.assertIn("CH1", html)
+        self.assertIn("CH4", html)
 
 
 class QBoundaryTest(unittest.TestCase):
@@ -203,6 +366,23 @@ class TdrAnalysisTest(unittest.TestCase):
         expected_length = 299_792_458.0 * 0.66 * 40e-9 / 2.0
         self.assertAlmostEqual(result["metrics"]["length_m"], expected_length, delta=0.05)
 
+    def test_four_channel_propagation_fits_velocity_from_arrival_times(self):
+        from experiments.analysis import analyze_propagation_4ch
+
+        velocity = 2.0e8
+        distances = [0, 10, 20, 30]
+        t = np.linspace(-20e-9, 220e-9, 4000)
+        channels = {}
+        for idx, distance in enumerate(distances, start=1):
+            arrival = 30e-9 + distance / velocity
+            channels[idx] = 1 / (1 + np.exp(-(t - arrival) / 1.5e-9))
+
+        result = analyze_propagation_4ch(t, channels, distances)
+
+        self.assertTrue(result["valid"])
+        self.assertAlmostEqual(result["metrics"]["velocity_m_s"], velocity, delta=velocity * 0.04)
+        self.assertEqual(len(result["metrics"]["arrivals"]), 4)
+
 
 class CouplingFitTest(unittest.TestCase):
     def test_coupling_fit_reports_inverse_cube_and_core_gain(self):
@@ -219,6 +399,42 @@ class CouplingFitTest(unittest.TestCase):
         self.assertTrue(result["valid"])
         self.assertAlmostEqual(result["fit"]["distance_exponent"], -3.0, delta=0.05)
         self.assertAlmostEqual(result["fit"]["core_gain"], 3.0, delta=0.05)
+
+
+class ImpedanceAnalysisTest(unittest.TestCase):
+    def test_capacitor_impedance_estimates_capacitance_and_phase(self):
+        from experiments.analysis import analyze_impedance_point
+
+        f = 1000.0
+        c = 100e-9
+        rs = 1000.0
+        t = np.linspace(0, 0.02, 4000, endpoint=False)
+        current = 0.001 * np.cos(2 * np.pi * f * t)
+        v_dut = (1 / (2 * np.pi * f * c)) * 0.001 * np.cos(2 * np.pi * f * t - np.pi / 2)
+        v_ref = v_dut + current * rs
+
+        out = analyze_impedance_point(t, v_ref, v_dut, rsense_ohm=rs, frequency_hz=f, component_hint="capacitor")
+
+        self.assertTrue(out["valid"])
+        self.assertAlmostEqual(out["metrics"]["capacitance_f"], c, delta=c * 0.08)
+        self.assertLess(out["metrics"]["phase_deg"], -60)
+
+    def test_inductor_impedance_estimates_inductance_and_phase(self):
+        from experiments.analysis import analyze_impedance_point
+
+        f = 5000.0
+        l = 10e-3
+        rs = 100.0
+        t = np.linspace(0, 0.01, 4000, endpoint=False)
+        current = 0.005 * np.cos(2 * np.pi * f * t)
+        v_dut = (2 * np.pi * f * l) * 0.005 * np.cos(2 * np.pi * f * t + np.pi / 2)
+        v_ref = v_dut + current * rs
+
+        out = analyze_impedance_point(t, v_ref, v_dut, rsense_ohm=rs, frequency_hz=f, component_hint="inductor")
+
+        self.assertTrue(out["valid"])
+        self.assertAlmostEqual(out["metrics"]["inductance_h"], l, delta=l * 0.08)
+        self.assertGreater(out["metrics"]["phase_deg"], 60)
 
 
 class ApiContractTest(unittest.TestCase):
@@ -267,6 +483,13 @@ class ApiContractTest(unittest.TestCase):
         self.assertIn("metrics", out)
         self.assertIn("raw", out)
 
+    def test_experiment_post_routes_use_dispatch_table(self):
+        from experiments import web_server
+
+        self.assertIn("/api/exp/q-sweep", web_server.EXPERIMENT_POST_ROUTES)
+        self.assertIn("/api/exp/propagation-4ch", web_server.EXPERIMENT_POST_ROUTES)
+        self.assertIs(web_server.EXPERIMENT_POST_ROUTES["/api/exp/tdr-capture"], web_server._capture_tdr)
+
     def test_scope_config_turns_channels_on_when_requested(self):
         from experiments import web_server
 
@@ -276,6 +499,16 @@ class ApiContractTest(unittest.TestCase):
 
         self.assertTrue(out["ok"])
         channel_on.assert_called_once_with(2, True)
+
+    def test_scope_autoset_endpoint_calls_scope_autoset(self):
+        from experiments import web_server
+
+        handler = self._handler()
+        with mock.patch.object(web_server.scope, "autoset") as autoset:
+            out = handler._handle_post("/api/scope/autoset", {})
+
+        self.assertTrue(out["ok"])
+        autoset.assert_called_once_with()
 
     def test_awg_screenshot_endpoint_exists_without_idn_query(self):
         from experiments import web_server
@@ -287,6 +520,70 @@ class ApiContractTest(unittest.TestCase):
         shot.assert_called_once()
         self.assertEqual(out["content_type"], "image/png")
         self.assertEqual(out["bytes"], b"png")
+
+    def test_impedance_endpoint_uses_waveforms_without_voltage_measure_queries(self):
+        from experiments import web_server
+
+        handler = self._handler()
+        f = 1000.0
+        rs = 1000.0
+        t = np.linspace(0, 0.02, 2000, endpoint=False)
+        current = 0.001 * np.cos(2 * np.pi * f * t)
+        v_dut = 1591.55 * 0.001 * np.cos(2 * np.pi * f * t - np.pi / 2)
+        v_ref = v_dut + current * rs
+
+        with mock.patch.object(web_server.scope, "get_waveforms", return_value={1: (t, v_ref), 2: (t, v_dut)}) as wf:
+            out = handler._handle_post("/api/exp/impedance-point", {
+                "frequency_hz": f,
+                "rsense_ohm": rs,
+                "component_hint": "capacitor",
+            })
+
+        wf.assert_called_once_with([1, 2])
+        self.assertTrue(out["ok"])
+        self.assertTrue(out["valid"])
+        self.assertIn("impedance_ohm", out["metrics"])
+
+    def test_propagation_endpoint_reads_four_scope_channels(self):
+        from experiments import web_server
+
+        handler = self._handler()
+        t = np.linspace(0, 200e-9, 2000)
+        data = {ch: (t, np.heaviside(t - ch * 20e-9, 0.0)) for ch in [1, 2, 3, 4]}
+        with mock.patch.object(web_server.scope, "get_waveforms", return_value=data) as wf:
+            out = handler._handle_post("/api/exp/propagation-4ch", {"tap_distances_m": "0,10,20,30"})
+
+        wf.assert_called_once_with([1, 2, 3, 4])
+        self.assertTrue(out["ok"])
+        self.assertIn("velocity_m_s", out["metrics"])
+
+    def test_panel_status_reports_awg_last_command_and_scope_channels(self):
+        from experiments import web_server
+
+        handler = self._handler()
+        web_server.AWG_PANEL_STATE[1].update({"wave": "sine", "freq": 1000.0, "output": True})
+
+        fake_channels = [
+            {"channel": 1, "on": True, "scale": 0.5, "offset": 0.0, "coupling": "DC", "probe": 1.0},
+            {"channel": 2, "on": False, "scale": 1.0, "offset": 0.0, "coupling": "AC", "probe": 10.0},
+            {"channel": 3, "on": False, "scale": 1.0, "offset": 0.0, "coupling": "DC", "probe": 1.0},
+            {"channel": 4, "on": True, "scale": 0.2, "offset": 0.0, "coupling": "DC", "probe": 1.0},
+        ]
+        with mock.patch.object(web_server.bk, "idn", side_effect=lambda key: f"{key}-id") as idn, \
+             mock.patch.object(web_server.scope, "panel_status", return_value={
+                 "online": True,
+                 "id": "scope-id",
+                 "channels": fake_channels,
+                 "acquire_mode": "YT",
+                 "trigger_status": "Trig'd",
+             }):
+            out = handler._handle_get_api("/api/panel/status", {})
+
+        idn.assert_not_called()
+        self.assertEqual(out["awg"]["state_source"], "last_command")
+        self.assertTrue(out["awg"]["channels"][0]["output"])
+        self.assertEqual(len(out["scope"]["channels"]), 4)
+        self.assertEqual(out["scope"]["state_source"], "instrument_query")
 
 
 if __name__ == "__main__":

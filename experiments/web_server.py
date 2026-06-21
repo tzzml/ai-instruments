@@ -14,9 +14,21 @@ import urllib.parse
 import numpy as np
 from instruments import _backend as bk
 from instruments import awg, scope
-from experiments.analysis import analyze_tdr, fit_coupling_points, q_from_sweep
+from experiments.analysis import (
+    analyze_impedance_point,
+    analyze_propagation_4ch,
+    analyze_tdr,
+    fit_coupling_points,
+    q_from_sweep,
+)
 from experiments.profiles import COURSE_MODULES, EXPERIMENT_PROFILES, EXPERIMENT_STATIONS
 from experiments.q_measure import measure_q
+
+
+AWG_PANEL_STATE = {
+    1: {"channel": 1, "wave": "sine", "freq": 1000.0, "amp": 2.0, "offset": 0.0, "load": 10000.0, "output": False},
+    2: {"channel": 2, "wave": "sine", "freq": 1000.0, "amp": 2.0, "offset": 0.0, "load": 10000.0, "output": False},
+}
 
 
 class ExperimentAPI(http.server.SimpleHTTPRequestHandler):
@@ -80,6 +92,9 @@ class ExperimentAPI(http.server.SimpleHTTPRequestHandler):
             except Exception as e:
                 out["scope"] = {"online": False, "error": str(e)[:80]}
             return out
+
+        if path == "/api/panel/status":
+            return _panel_status()
 
         if path == "/api/awg/screenshot":
             return {"content_type": "image/png", "bytes": awg.screenshot()}
@@ -176,25 +191,45 @@ class ExperimentAPI(http.server.SimpleHTTPRequestHandler):
             if "phase" in body:         awg.set_phase(ch, float(body["phase"]))
             if "ramp_symmetry" in body: awg.set_ramp_symmetry(ch, float(body["ramp_symmetry"]))
             if "output" in body:        awg.output(ch, bool(body["output"]))
+            _update_awg_panel_state(ch, body)
             return {"ok": True}
         if path == "/api/awg/configure-am":
+            ch = int(body.get("channel", 1))
             awg.configure_am(
-                int(body.get("channel", 1)),
+                ch,
                 carrier_freq=float(body.get("carrier_hz", 1e6)),
                 carrier_amp=float(body.get("amp", 2.0)),
                 mod_freq=float(body.get("mod_freq_hz", 1000.0)),
                 mod_depth=float(body.get("mod_depth_pct", 50.0)),
                 load=float(body.get("load", 10000.0)),
             )
+            _update_awg_panel_state(ch, {
+                "wave": "sine",
+                "freq": float(body.get("carrier_hz", 1e6)),
+                "amp": float(body.get("amp", 2.0)),
+                "load": float(body.get("load", 10000.0)),
+                "output": True,
+                "modulation": "AM",
+                "mod_freq_hz": float(body.get("mod_freq_hz", 1000.0)),
+                "mod_depth_pct": float(body.get("mod_depth_pct", 50.0)),
+            })
             return {"ok": True}
         if path == "/api/awg/output":
-            awg.output(int(body.get("channel", 1)), bool(body.get("on", True)))
+            ch = int(body.get("channel", 1))
+            on = bool(body.get("on", True))
+            awg.output(ch, on)
+            AWG_PANEL_STATE.setdefault(ch, {"channel": ch})["output"] = on
             return {"ok": True}
         if path == "/api/awg/off":
-            awg.output_off(int(body.get("channel", 1)))
+            ch = int(body.get("channel", 1))
+            awg.output_off(ch)
+            AWG_PANEL_STATE.setdefault(ch, {"channel": ch})["output"] = False
             return {"ok": True}
 
         # ---- Scope: 采集启停 ----
+        if path == "/api/scope/autoset":
+            scope.autoset()
+            return {"ok": True, "next_hint": "等待示波器自动调整完成后刷新状态或抓取屏幕核对。"}
         if path == "/api/scope/run":
             scope.run(); return {"ok": True}
         if path == "/api/scope/stop":
@@ -225,50 +260,8 @@ class ExperimentAPI(http.server.SimpleHTTPRequestHandler):
             return {"ok": True}
 
         # ---- 一键实验 ----
-        if path == "/api/exp/q-sweep":
-            return _run_q_sweep(body)
-        if path == "/api/exp/ringdown":
-            from experiments.lc_ringdown import measure_ringdown
-            r = measure_ringdown(
-                f0_guess=float(body.get("f0_guess", 806e3)),
-                awg_freq=float(body.get("awg_freq", 2000)),
-                awg_amp=float(body.get("awg_amp", 4.0)),
-                scope_channel=int(body.get("channel", 1)),
-                trig_level=float(body.get("level", 1.0)),
-                cycles=int(body.get("cycles", 20)))
-            ti, vi = _decimate(r.time, r.voltage, int(body.get("points", 3000)))
-            return {
-                "ok": True, "valid": True, "warnings": [],
-                "raw": {"time": ti, "voltage": vi,
-                        "peak_t": r.peak_times, "peak_v": r.peak_volts},
-                "fit": {"method": "ln(V_peak) vs time"},
-                "metrics": {"f0": r.f0, "tau_d": r.tau_d, "q": r.q},
-                "next_hint": "切换到扫频法，比较 Q=f0/BW 与 Q=pi*f0*tau。",
-            }
-        if path == "/api/exp/coupling-point":
-            return _record_coupling_point(body)
-        if path == "/api/exp/transformer-point":
-            return _record_transformer_point(body)
-        if path == "/api/exp/tdr-capture":
-            return _capture_tdr(body)
-        if path == "/api/exp/diode-va":
-            from experiments.diode_va import measure_diode_va
-            r = measure_diode_va(
-                v_scan=float(body.get("v_scan", 5.0)),
-                period_s=float(body.get("period_s", 10.0)),
-                rsense_ohm=float(body.get("rsense", 1000.0)),
-                v_ch=int(body.get("v_ch", 1)),
-                i_ch=int(body.get("i_ch", 2)),
-                vdiv=body.get("vdiv"))
-            n = int(body.get("points", 3000))
-            v_dec, i_dec = _decimate(r.voltage, r.current * 1e3, n)  # 同步抽取 (V, mA)
-            return {
-                "ok": True, "valid": True, "warnings": [],
-                "raw": {"voltage": v_dec, "current": i_dec},
-                "fit": {},
-                "metrics": {"rsense": r.rsense_ohm, "period_s": r.period_s},
-                "next_hint": "改变扫描速度，比较准静态曲线是否重合。",
-            }
+        if path in EXPERIMENT_POST_ROUTES:
+            return EXPERIMENT_POST_ROUTES[path](body)
         return {"ok": False, "error": "未知 POST 端点: %s" % path}
 
     def _cors(self):
@@ -298,6 +291,39 @@ def _decimate(t, v, target):
     return t[::step], v[::step]
 
 
+def _update_awg_panel_state(channel, body):
+    state = AWG_PANEL_STATE.setdefault(int(channel), {"channel": int(channel)})
+    for key in ("wave", "freq", "period", "amp", "offset", "duty", "phase", "load", "output", "ramp_symmetry"):
+        if key in body:
+            state[key] = body[key]
+    state["channel"] = int(channel)
+
+
+def _panel_status():
+    out = {
+        "ok": True,
+        "awg": {
+            "online": True,
+            "id": "write-only",
+            "state_source": "last_command",
+            "note": "UTG962 USBTMC 查询不稳定；面板不查询 AWG，只显示本 Web 会话最近下发的配置。",
+            "channels": [dict(AWG_PANEL_STATE.get(ch, {"channel": ch})) for ch in (1, 2)],
+        },
+    }
+    try:
+        sc = scope.panel_status()
+        sc["state_source"] = "instrument_query"
+        out["scope"] = sc
+    except Exception as e:
+        out["scope"] = {
+            "online": False,
+            "state_source": "instrument_query",
+            "error": str(e)[:120],
+            "channels": [{"channel": ch, "error": str(e)[:80]} for ch in range(1, 5)],
+        }
+    return out
+
+
 def _run_q_sweep(body):
     scope_vdiv = body.get("scope_vdiv", body.get("vdiv"))
     result = measure_q(
@@ -325,6 +351,26 @@ def _run_q_sweep(body):
     if result.inductance_h is not None:
         analysis["metrics"]["inductance_h"] = result.inductance_h
     return analysis
+
+
+def _run_ringdown(body):
+    from experiments.lc_ringdown import measure_ringdown
+    r = measure_ringdown(
+        f0_guess=float(body.get("f0_guess", 806e3)),
+        awg_freq=float(body.get("awg_freq", 2000)),
+        awg_amp=float(body.get("awg_amp", 4.0)),
+        scope_channel=int(body.get("channel", 1)),
+        trig_level=float(body.get("level", 1.0)),
+        cycles=int(body.get("cycles", 20)))
+    ti, vi = _decimate(r.time, r.voltage, int(body.get("points", 3000)))
+    return {
+        "ok": True, "valid": True, "warnings": [],
+        "raw": {"time": ti, "voltage": vi,
+                "peak_t": r.peak_times, "peak_v": r.peak_volts},
+        "fit": {"method": "ln(V_peak) vs time"},
+        "metrics": {"f0": r.f0, "tau_d": r.tau_d, "q": r.q},
+        "next_hint": "切换到扫频法，比较 Q=f0/BW 与 Q=pi*f0*tau。",
+    }
 
 
 def _record_coupling_point(body):
@@ -400,6 +446,29 @@ def _record_transformer_point(body):
     }
 
 
+def _capture_impedance_point(body):
+    ref_ch = int(body.get("ref_channel", 1))
+    dut_ch = int(body.get("dut_channel", 2))
+    data = scope.get_waveforms([ref_ch, dut_ch])
+    t_ref, v_ref = data[ref_ch]
+    _t_dut, v_dut = data[dut_ch]
+    result = analyze_impedance_point(
+        t_ref,
+        v_ref,
+        v_dut,
+        rsense_ohm=float(body.get("rsense_ohm", body.get("rsense", 1000.0))),
+        frequency_hz=float(body.get("frequency_hz", 1000.0)),
+        component_hint=str(body.get("component_hint", "")),
+    )
+    target = int(body.get("points_out", 1800))
+    ti, ref_dec = _decimate(t_ref, np.asarray(v_ref), target)
+    _, dut_dec = _decimate(t_ref, np.asarray(v_dut), target)
+    _, cur_dec = _decimate(t_ref, (np.asarray(v_ref) - np.asarray(v_dut)) / float(body.get("rsense_ohm", body.get("rsense", 1000.0))), target)
+    result["raw"].update({"time": ti, "ref": ref_dec, "dut": dut_dec, "current": cur_dec})
+    result["next_hint"] = "换频率再次记录，比较电容 |Z| 随频率下降、电感 |Z| 随频率上升。"
+    return result
+
+
 def _capture_tdr(body):
     if body.get("time") is not None and body.get("voltage") is not None:
         return analyze_tdr(body["time"], body["voltage"], float(body.get("velocity_factor", 0.66)))
@@ -407,6 +476,68 @@ def _capture_tdr(body):
     channel = int(body.get("channel", 1))
     t, v = scope.get_waveform(channel)
     return analyze_tdr(t, v, float(body.get("velocity_factor", 0.66)))
+
+
+def _parse_float_list(value, default):
+    if value is None or value == "":
+        return list(default)
+    if isinstance(value, str):
+        return [float(part.strip()) for part in value.split(",") if part.strip()]
+    return [float(part) for part in value]
+
+
+def _capture_propagation_4ch(body):
+    channels = [int(ch) for ch in body.get("channels", [1, 2, 3, 4])]
+    distances = _parse_float_list(body.get("tap_distances_m"), [0, 10, 20, 30])
+    data = scope.get_waveforms(channels)
+    first_ch = channels[0]
+    t, _ = data[first_ch]
+    channel_voltages = {ch: data[ch][1] for ch in channels}
+    result = analyze_propagation_4ch(t, channel_voltages, distances)
+
+    target = int(body.get("points_out", 1800))
+    raw_channels = {}
+    for ch in channels:
+        ti, vi = _decimate(data[ch][0], data[ch][1], target)
+        raw_channels[str(ch)] = {
+            "time": ti,
+            "voltage": vi,
+            "vpp": float(np.max(data[ch][1]) - np.min(data[ch][1])),
+        }
+    result["raw"].update({"channels": raw_channels})
+    return result
+
+
+def _capture_diode_va(body):
+    from experiments.diode_va import measure_diode_va
+    r = measure_diode_va(
+        v_scan=float(body.get("v_scan", 5.0)),
+        period_s=float(body.get("period_s", 10.0)),
+        rsense_ohm=float(body.get("rsense", 1000.0)),
+        v_ch=int(body.get("v_ch", 1)),
+        i_ch=int(body.get("i_ch", 2)),
+        vdiv=body.get("vdiv"))
+    n = int(body.get("points", 3000))
+    v_dec, i_dec = _decimate(r.voltage, r.current * 1e3, n)
+    return {
+        "ok": True, "valid": True, "warnings": [],
+        "raw": {"voltage": v_dec, "current": i_dec},
+        "fit": {},
+        "metrics": {"rsense": r.rsense_ohm, "period_s": r.period_s},
+        "next_hint": "改变扫描速度，比较准静态曲线是否重合。",
+    }
+
+
+EXPERIMENT_POST_ROUTES = {
+    "/api/exp/q-sweep": _run_q_sweep,
+    "/api/exp/ringdown": _run_ringdown,
+    "/api/exp/coupling-point": _record_coupling_point,
+    "/api/exp/transformer-point": _record_transformer_point,
+    "/api/exp/tdr-capture": _capture_tdr,
+    "/api/exp/propagation-4ch": _capture_propagation_4ch,
+    "/api/exp/impedance-point": _capture_impedance_point,
+    "/api/exp/diode-va": _capture_diode_va,
+}
 
 
 def _reset_instruments():
@@ -419,8 +550,14 @@ def _reset_instruments():
     result = {}
     try:
         awg.output_off(1); awg.output_off(2)
+        AWG_PANEL_STATE[1]["output"] = False
+        AWG_PANEL_STATE[2]["output"] = False
         awg.configure(1, wave="sine", frequency=1e3, amplitude=2.0,
                       offset=0, load=10000, output=False)
+        _update_awg_panel_state(1, {
+            "wave": "sine", "freq": 1e3, "amp": 2.0,
+            "offset": 0, "load": 10000, "output": False,
+        })
         result["awg"] = {"ok": True}
     except Exception as e:
         result["awg"] = {"ok": False, "error": str(e)[:120]}

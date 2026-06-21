@@ -90,6 +90,54 @@ def get_probe(channel: int) -> float:
     return _num(bk.query(KEY, ":CHANnel%d:PROBe?" % channel))
 
 
+def get_channel_on(channel: int) -> bool:
+    resp = bk.query(KEY, ":CHANnel%d:SWITch?" % channel).strip().upper()
+    return resp in ("1", "ON", "TRUE")
+
+
+def get_coupling(channel: int) -> str:
+    return bk.query(KEY, ":CHANnel%d:COUPling?" % channel).strip()
+
+
+def get_timebase() -> float:
+    return _num(bk.query(KEY, ":TIMebase:SCALe?"))
+
+
+def get_trigger_status() -> str:
+    return bk.query(KEY, ":TRIGger:STATus?").strip()
+
+
+def panel_status() -> dict:
+    """Read the actual SDS channel state for the browser control panel."""
+    channels = []
+    for ch in range(1, 5):
+        item = {"channel": ch}
+        for key, fn in (
+            ("on", lambda c=ch: get_channel_on(c)),
+            ("scale", lambda c=ch: get_scale(c)),
+            ("offset", lambda c=ch: get_offset(c)),
+            ("coupling", lambda c=ch: get_coupling(c)),
+            ("probe", lambda c=ch: get_probe(c)),
+        ):
+            try:
+                item[key] = fn()
+            except Exception as e:
+                item[key + "_error"] = str(e)[:80]
+        channels.append(item)
+
+    out = {"online": True, "id": identity(), "channels": channels}
+    for key, fn in (
+        ("timebase", get_timebase),
+        ("acquire_mode", get_acquire_mode),
+        ("trigger_status", get_trigger_status),
+    ):
+        try:
+            out[key] = fn()
+        except Exception as e:
+            out[key + "_error"] = str(e)[:80]
+    return out
+
+
 def get_srate() -> float:
     return _num(bk.query(KEY, ":ACQuire:SRATe?"))
 

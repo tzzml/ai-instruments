@@ -11,6 +11,7 @@ import json
 import os
 import http.server
 import urllib.parse
+from pathlib import Path
 import numpy as np
 from instruments import _backend as bk
 from instruments import awg, dmm, lcr, scope
@@ -23,6 +24,10 @@ from experiments.analysis import (
 )
 from experiments.profiles import COURSE_MODULES, EXPERIMENT_PROFILES, EXPERIMENT_STATIONS
 from experiments.q_measure import measure_q
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+STATIC_ROOT = PROJECT_ROOT / "experiments" / "static"
 
 
 AWG_PANEL_STATE = {
@@ -38,6 +43,13 @@ class ExperimentAPI(http.server.SimpleHTTPRequestHandler):
         self.send_response(200)
         self._cors()
         self.end_headers()
+
+    def do_HEAD(self):
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path.startswith("/api/"):
+            self.send_error(405, "HEAD not supported for API endpoints")
+            return
+        self._serve_static(parsed.path, include_body=False)
 
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
@@ -63,20 +75,23 @@ class ExperimentAPI(http.server.SimpleHTTPRequestHandler):
                 self._json({"ok": False, "valid": False, "warnings": [str(e)],
                             "raw": {}, "fit": {}, "metrics": {}, "next_hint": ""})
         else:
-            # 静态文件: / → index.html, 其他从 experiments/static/ 目录服务
-            if path == "/" or path == "":
-                path = "/index.html"
-            file_path = os.path.join("experiments", "static", path.lstrip("/"))
-            try:
-                with open(file_path, "rb") as f:
-                    content = f.read()
-                self.send_response(200)
-                ct = _content_type(file_path)
-                self.send_header("Content-Type", ct)
-                self.end_headers()
+            self._serve_static(path)
+
+    def _serve_static(self, path: str, include_body: bool = True):
+        # 静态文件: / → index.html, 其他从 experiments/static/ 目录服务
+        if path == "/" or path == "":
+            path = "/index.html"
+        file_path = STATIC_ROOT / path.lstrip("/")
+        try:
+            content = file_path.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", _content_type(file_path))
+            self.send_header("Content-Length", str(len(content)))
+            self.end_headers()
+            if include_body:
                 self.wfile.write(content)
-            except FileNotFoundError:
-                self.send_error(404, "File not found")
+        except FileNotFoundError:
+            self.send_error(404, "File not found")
 
     def _handle_get_api(self, path, params):
         if path == "/api/status":
@@ -633,9 +648,7 @@ def _json_default(obj):
 
 def main(port=8050):
     import sys
-    # 切换到项目根目录以便访问 static 文件
-    import os
-    os.chdir(os.path.dirname(os.path.dirname(__file__)))
+    os.chdir(PROJECT_ROOT)
     server = http.server.ThreadingHTTPServer(("0.0.0.0", port), ExperimentAPI)
     print(f"电磁学实验平台: http://localhost:{port}")
     print("API 端点:")

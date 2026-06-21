@@ -393,6 +393,10 @@ class ExperimentProfilesTest(unittest.TestCase):
         self.assertIn('id="lcrReadout"', html)
         self.assertIn("/api/lcr/read", html)
         self.assertIn("refreshLcrStatus", html)
+        self.assertIn("万用表 UT61E", html)
+        self.assertIn("LCR 电桥 UT612", html)
+        self.assertNotIn("低速测量仪表", html)
+        self.assertNotIn("meter-grid", html)
         self.assertIn("renderAwgChannels", html)
         self.assertIn("renderScopeChannels", html)
         self.assertIn("/api/panel/status", html)
@@ -806,6 +810,12 @@ class ApiContractTest(unittest.TestCase):
         read_once.assert_called_once_with(0.5)
         self.assertTrue(out["ok"])
         self.assertEqual(out["reading"]["display"], "Ls 1KHz 10.0 uH | Q 0.001 [Auto LCR]")
+
+    def test_static_root_is_absolute_and_contains_panel(self):
+        from experiments import web_server
+
+        self.assertTrue(web_server.STATIC_ROOT.is_absolute())
+        self.assertTrue((web_server.STATIC_ROOT / "panel.html").exists())
 
 
 if __name__ == "__main__":

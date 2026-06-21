@@ -53,6 +53,7 @@
   </main>
   <section class="side">
     <h2 id="sideTitle">实验设计</h2>
+    <div class="experiment-image" id="experimentImage"></div>
     <div class="schematic" id="schematic"></div>
     <h3>实验目标</h3><div class="hint" id="stationGoal"></div>
     <h3>电路设计</h3><ol class="steps" id="circuit"></ol>
@@ -62,6 +63,10 @@
   </section>
 </div>
 <div class="toast" id="toast"></div>
+<div class="image-modal" id="imageModal" onclick="closeImageModal(event)">
+  <button class="image-modal-close" onclick="closeImageModal(event)">关闭</button>
+  <img id="imageModalImg" alt="">
+</div>
 <script src="/workbench.js"></script>
 </body>
 </html>

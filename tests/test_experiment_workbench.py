@@ -41,6 +41,16 @@ class ExperimentProfilesTest(unittest.TestCase):
         self.assertIn("检波", diode["summary"])
         self.assertTrue(diode["safety"])
 
+        mineral = next(p for p in EXPERIMENT_PROFILES if p["key"] == "mineral_loop")
+        spiderweb = next(p for p in EXPERIMENT_PROFILES if p["key"] == "spiderweb_loop")
+        self.assertIn("22.5 cm", mineral["name"] + mineral["summary"])
+        self.assertIn("28 匝", mineral["summary"])
+        self.assertIn("0.8 mm", mineral["summary"])
+        self.assertIn("无氧铜漆包线", mineral["summary"])
+        self.assertIn("80 cm", spiderweb["name"] + spiderweb["summary"])
+        self.assertIn("多股", spiderweb["summary"])
+        self.assertIn("利兹线", spiderweb["summary"])
+
         passive = next(p for p in EXPERIMENT_PROFILES if p["key"] == "passive_impedance_parts")
         self.assertIn("电感", passive["summary"])
         self.assertIn("电容", passive["summary"])
@@ -142,6 +152,22 @@ class ExperimentProfilesTest(unittest.TestCase):
         for child in mw_children:
             self.assertNotIn("/", child["title"])
             self.assertEqual(child["experiment"], child["parameters"][0].get("experiment", child["experiment"]))
+        q_sweep = next(s for s in mw_children if s["key"] == "mw_q_sweep")
+        q_text = q_sweep["goal"] + "".join(q_sweep["circuit"])
+        self.assertIn("22.5 cm", q_text)
+        self.assertIn("80 cm", q_text)
+        self.assertIn("无氧铜", q_text)
+        self.assertIn("利兹线", q_text)
+        standard = next(s for s in mw_children if s["key"] == "mw_standard_field")
+        standard_text = standard["goal"] + "".join(standard["circuit"]) + "".join(standard["acquisition"]["measure"])
+        self.assertIn("同一标准中波场强", standard_text)
+        self.assertIn("感应电压", standard_text)
+        self.assertIn("弱台接收能力", standard_text)
+        self.assertIn("电压增益比", standard_text)
+        self.assertIn("rx_antenna", {p["id"] for p in standard["parameters"]})
+        self.assertIn("load_ohm", {p["id"] for p in standard["parameters"]})
+        for child in mw_children:
+            self.assertEqual("/assets/mw-loop-field-comparison.png", child["image"]["src"])
 
     def test_experiment_parameter_sets_are_station_specific(self):
         from experiments.profiles import EXPERIMENT_STATIONS
@@ -199,6 +225,10 @@ class ExperimentProfilesTest(unittest.TestCase):
         self.assertIn("awg_square_tdr_source", tdr["materials"])
         self.assertEqual(tdr["acquisition"]["awg"]["wave"], "square")
         self.assertIn("慢边沿", tdr["goal"])
+        tdr_text = tdr["goal"] + "".join(tdr["circuit"]) + "".join(p["label"] for p in tdr["parameters"])
+        self.assertIn("重复频率", tdr_text)
+        self.assertIn("上升沿", tdr_text)
+        self.assertIn("反射不重叠", tdr_text)
         self.assertNotEqual(tdr["acquisition"]["awg"].get("source"), "avalanche_pulser")
 
     def test_pulse_topic_includes_four_point_propagation_experiment(self):
@@ -211,6 +241,7 @@ class ExperimentProfilesTest(unittest.TestCase):
         self.assertEqual(station["acquisition"]["scope"]["channels"], [1, 2, 3, 4])
         self.assertIn("0/10/20/30 m", station["goal"])
         self.assertIn("tap_distances_m", {p["id"] for p in station["parameters"]})
+        self.assertEqual("/assets/twisted-pair-tdr.png", station["image"]["src"])
 
     def test_static_workbench_keeps_materials_in_experiment_detail_not_sidebar(self):
         html = Path("experiments/static/index.html").read_text(encoding="utf-8")
@@ -243,6 +274,33 @@ class ExperimentProfilesTest(unittest.TestCase):
         self.assertIn("captureInstrumentScreens", html)
         self.assertIn("/api/awg/screenshot", html)
         self.assertIn("/api/scope/autoset", html)
+
+    def test_static_workbench_renders_experiment_images(self):
+        from experiments.profiles import EXPERIMENT_STATIONS
+
+        html = _workbench_assets_text()
+
+        self.assertIn('id="experimentImage"', html)
+        self.assertIn('id="imageModal"', html)
+        self.assertIn('id="imageModalImg"', html)
+        self.assertIn("renderExperimentImage", html)
+        self.assertIn("openImageModal", html)
+        self.assertIn("closeImageModal", html)
+        self.assertIn("点击放大", html)
+        self.assertIn("currentStation.image", html)
+        for asset in [
+            "mw-loop-field-comparison.png",
+            "dipole-rx-tx.png",
+            "primary-secondary-coils.png",
+            "twisted-pair-tdr.png",
+            "diode-iv-switch-comparison.png",
+        ]:
+            self.assertTrue(Path("experiments/static/assets", asset).exists())
+        imaged = [s for s in EXPERIMENT_STATIONS if "image" in s]
+        self.assertGreaterEqual(len(imaged), 10)
+        for station in imaged:
+            self.assertTrue(station["image"]["src"].startswith("/assets/"))
+            self.assertTrue(station["image"]["alt"])
 
     def test_static_workbench_uses_external_assets(self):
         html = Path("experiments/static/index.html").read_text(encoding="utf-8")
@@ -279,6 +337,18 @@ class ExperimentProfilesTest(unittest.TestCase):
         self.assertIn("/api/exp/diode-va", html)
         self.assertIn("drawDiodeVA", html)
         self.assertIn("二极管伏安", html)
+
+    def test_diode_va_experiment_supports_detector_diode_switching(self):
+        from experiments.profiles import EXPERIMENT_STATIONS
+
+        station = next(s for s in EXPERIMENT_STATIONS if s["key"] == "diode_va_curve")
+        text = station["goal"] + "".join(station["circuit"]) + "".join(station["controls"])
+        self.assertEqual("/assets/diode-iv-switch-comparison.png", station["image"]["src"])
+        self.assertIn("多路切换", text)
+        self.assertIn("I-V 曲线", text)
+        diode_param = next(p for p in station["parameters"] if p["id"] == "diode_type")
+        option_values = {value for value, _label in diode_param["options"]}
+        self.assertEqual({"2ap9", "1n34", "1n60", "1ss86", "1ss106", "bat85", "other"}, option_values)
 
     def test_static_workbench_renders_impedance_experiments(self):
         html = _workbench_assets_text()

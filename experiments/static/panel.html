@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>仪器控制面板 - UTG962 + SDS824X HD + UT61E</title>
+<title>仪器控制面板 - UTG962 + SDS824X HD + UT61E + UT612</title>
 <style>
 :root{--bg:#0d1b2a;--card:#152233;--card2:#1b2a3a;--line:#243447;--fg:#e0e6ed;--mut:#8a99a8;--blue:#4fc3f7;--red:#e94560;--green:#50fa7b;--yellow:#f1fa8c;--purple:#bd93f9}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 -apple-system,"PingFang SC",sans-serif;padding:12px}a{color:var(--blue);text-decoration:none}
@@ -13,11 +13,11 @@ input,select{background:var(--card2);border:1px solid var(--line);border-radius:
 .layout{display:grid;grid-template-columns:1fr 1.25fr;gap:12px;margin-top:12px}.section{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px}.section h2{margin:0 0 10px;font-size:15px;color:var(--blue);display:flex;justify-content:space-between;gap:10px}.hint{color:var(--mut);font-size:11px;line-height:1.5}.channel-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.scope-grid{grid-template-columns:repeat(4,minmax(180px,1fr))}
 .channel-card{background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:10px}.channel-card header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}.channel-title{font-weight:700}.state{font-size:11px;color:var(--mut)}.state.on{color:var(--green)}.state.err{color:var(--red)}
 .row{display:grid;grid-template-columns:58px minmax(0,1fr);gap:6px;align-items:center;margin:6px 0}.row label{color:var(--mut);font-size:12px}.row.two{grid-template-columns:58px 1fr 1fr}.btns{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.toggle{display:inline-flex;gap:5px;align-items:center;color:var(--mut)}.toggle input{min-width:auto}
-.dmm-panel{display:grid;grid-template-columns:minmax(220px,1fr) minmax(220px,1fr);gap:10px}.dmm-readout{background:#050b12;border:1px solid var(--line);border-radius:6px;min-height:96px;display:flex;align-items:center;justify-content:center;font:700 28px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--green);text-align:center;padding:12px}.dmm-meta{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--mut);word-break:break-all}
+.meter-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.meter-panel{display:grid;grid-template-columns:minmax(220px,1fr) minmax(220px,1fr);gap:10px}.meter-readout{background:#050b12;border:1px solid var(--line);border-radius:6px;min-height:96px;display:flex;align-items:center;justify-content:center;font:700 24px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--green);text-align:center;padding:12px}.meter-meta{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--mut);word-break:break-all}
 .screens{display:grid;grid-template-columns:1fr 1fr;gap:10px}.screen-frame{aspect-ratio:16/9;background:#050b12;border:1px solid var(--line);border-radius:6px;display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--mut)}.screen-frame img{width:100%;height:100%;object-fit:contain}
 .wave{margin-top:12px}.ctrl{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:8px}.chbox{display:inline-flex;gap:4px;align-items:center;cursor:pointer}.sw{width:10px;height:10px;border-radius:2px}canvas{width:100%;height:320px;background:#08111c;border:1px solid var(--line);border-radius:5px;display:block}
 .toast{position:fixed;right:16px;bottom:16px;background:var(--card2);border:1px solid var(--line);padding:10px 14px;border-radius:7px;opacity:0;transition:.2s;max-width:360px;z-index:10}.toast.show{opacity:1}.toast.err{border-color:var(--red);color:var(--red)}.toast.ok{border-color:var(--green);color:var(--green)}
-@media(max-width:1200px){.layout{grid-template-columns:1fr}.scope-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:720px){.channel-grid,.scope-grid,.screens,.dmm-panel{grid-template-columns:1fr}}
+@media(max-width:1200px){.layout{grid-template-columns:1fr}.scope-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.meter-grid{grid-template-columns:1fr}}@media(max-width:720px){.channel-grid,.scope-grid,.screens,.meter-panel{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -26,6 +26,7 @@ input,select{background:var(--card2);border:1px solid var(--line);border-radius:
   <div class="stat"><span class="dot" id="dot-awg"></span>AWG <span class="idn" id="idn-awg">write-only</span></div>
   <div class="stat"><span class="dot" id="dot-scope"></span>Scope <span class="idn" id="idn-scope">-</span></div>
   <div class="stat"><span class="dot" id="dot-dmm"></span>DMM <span class="idn" id="idn-dmm">UT61E</span></div>
+  <div class="stat"><span class="dot" id="dot-lcr"></span>LCR <span class="idn" id="idn-lcr">UT612</span></div>
   <div style="margin-left:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
     <button onclick="refreshPanelStatus()">刷新状态</button>
     <button onclick="captureAwgScreen()">抓 AWG 屏幕</button>
@@ -55,16 +56,29 @@ input,select{background:var(--card2);border:1px solid var(--line);border-radius:
 </div>
 
 <section class="section" style="margin-top:12px">
-  <h2>万用表 UT61E <span class="hint">慢速/DC/基础元件读数，串口 19200 7O1</span></h2>
-  <div class="dmm-panel">
-    <div>
-      <div class="row"><label>串口</label><input id="dmmPort" placeholder="/dev/tty.usbserial-xxxx 或留空用 UT61E_PORT"></div>
-      <div class="btns"><button class="primary" onclick="dmmRead()">读一次</button><button onclick="refreshDmmStatus()">刷新 DMM 状态</button></div>
-      <div class="hint" id="dmmHint" style="margin-top:8px">用于电阻、电压、二极管压降、电容等低速读数；高速过程仍由 Scope 采集。</div>
+  <h2>低速测量仪表 <span class="hint">UT61E 辅助读数；UT612 测 L/C/R/Q/ESR/theta</span></h2>
+  <div class="meter-grid">
+    <div class="meter-panel">
+      <div>
+        <div class="row"><label>串口</label><input id="dmmPort" placeholder="/dev/tty.usbserial-xxxx 或留空用 UT61E_PORT"></div>
+        <div class="btns"><button class="primary" onclick="dmmRead()">读 DMM</button><button onclick="refreshDmmStatus()">刷新</button></div>
+        <div class="hint" id="dmmHint" style="margin-top:8px">UT61E：电阻、电压、二极管压降、电容等低速读数。</div>
+      </div>
+      <div>
+        <div class="meter-readout" id="dmmReadout">未读取</div>
+        <div class="meter-meta" id="dmmMeta">-</div>
+      </div>
     </div>
-    <div>
-      <div class="dmm-readout" id="dmmReadout">未读取</div>
-      <div class="dmm-meta" id="dmmMeta">-</div>
+    <div class="meter-panel">
+      <div>
+        <div class="row"><label>设备</label><input id="lcrDevice" disabled value="CP2110 HID 10c4:ea80"></div>
+        <div class="btns"><button class="primary" onclick="lcrRead()">读 LCR</button><button onclick="refreshLcrStatus()">刷新</button></div>
+        <div class="hint" id="lcrHint" style="margin-top:8px">UT612：请在仪表上打开 USB 模式；读取 L/C/R/Q/ESR/theta 和测试频率。</div>
+      </div>
+      <div>
+        <div class="meter-readout" id="lcrReadout">未读取</div>
+        <div class="meter-meta" id="lcrMeta">-</div>
+      </div>
     </div>
   </div>
 </section>
@@ -137,10 +151,11 @@ function renderScopeChannels(channels){
 
 function refreshPanelStatus(){
   getJSON('/api/panel/status').then(function(d){
-    var awg=d.awg||{}, sc=d.scope||{}, dm=d.dmm||{};
+    var awg=d.awg||{}, sc=d.scope||{}, dm=d.dmm||{}, lc=d.lcr||{};
     $('dot-awg').className='dot '+(awg.online?'on':'off');$('idn-awg').textContent=(awg.id||'write-only')+' / '+(awg.state_source||'');
     $('dot-scope').className='dot '+(sc.online?'on':'off');$('idn-scope').textContent=sc.online?(sc.id||'在线'):(sc.error||'离线');
     renderDmmStatus(dm);
+    renderLcrStatus(lc);
     renderAwgChannels(awg.channels);renderScopeChannels(sc.channels);
     toast('状态已刷新','ok');
   }).catch(function(e){toast('状态刷新失败: '+e.message,'err')});
@@ -178,6 +193,39 @@ function dmmRead(){
     $('dmmReadout').textContent='读取失败';
     $('dmmMeta').textContent=e.message;
     toast('DMM 读取失败: '+e.message,'err');
+  });
+}
+
+function renderLcrStatus(lc){
+  lc=lc||{};
+  $('dot-lcr').className='dot '+(lc.online?'on':'off');
+  var devs=lc.devices||[];
+  var first=devs[0]||{};
+  $('idn-lcr').textContent=lc.online?(first.product||'UT612 在线'):'UT612';
+  $('lcrHint').textContent=lc.note||lc.error||'UT612 使用 CP2110 HID USB-to-UART；请打开仪表 USB 模式。';
+}
+
+function refreshLcrStatus(){
+  getJSON('/api/lcr/status').then(function(d){
+    renderLcrStatus(d.lcr||{});
+    toast('LCR 状态已刷新','ok');
+  }).catch(function(e){toast('LCR 状态失败: '+e.message,'err')});
+}
+
+function lcrRead(){
+  $('lcrReadout').textContent='读取中...';
+  api('/api/lcr/read',{timeout:2}).then(function(d){
+    var r=d.reading||{}, p=r.primary||{}, s=r.secondary||{};
+    $('dot-lcr').className='dot on';
+    $('idn-lcr').textContent='UT612';
+    $('lcrReadout').textContent=(r.main_mode||'')+' '+(p.text||'-');
+    $('lcrMeta').textContent=[r.frequency,r.secondary_mode,s.text,JSON.stringify(r.flags||{})].filter(Boolean).join(' / ');
+    toast('LCR 读数完成','ok');
+  }).catch(function(e){
+    $('dot-lcr').className='dot off';
+    $('lcrReadout').textContent='读取失败';
+    $('lcrMeta').textContent=e.message;
+    toast('LCR 读取失败: '+e.message,'err');
   });
 }
 

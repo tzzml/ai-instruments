@@ -3,5 +3,6 @@ pyvisa-py>=0.8
 pyusb>=1.3
 libusb>=1.0
 pyserial>=3.5
+hidapi>=0.14
 numpy>=2.0
 matplotlib>=3.8

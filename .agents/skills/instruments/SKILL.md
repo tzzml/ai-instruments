@@ -1,9 +1,9 @@
 ---
 name: instruments
-description: 操作 UTG962 信号发生器 + SDS824X HD 示波器 + UT61E 万用表。当用户要控制信号发生器、示波器、万用表、测量波形/频率/幅度/低速读数、抓取波形、截图、或测量线圈/谐振回路的 Q 值时使用此 skill。
+description: 操作 UTG962 信号发生器 + SDS824X HD 示波器 + UT61E 万用表 + UT612 LCR 电桥。当用户要控制信号发生器、示波器、万用表、电桥、测量波形/频率/幅度/低速读数/LCR/Q/ESR、抓取波形、截图、或测量线圈/谐振回路的 Q 值时使用此 skill。
 ---
 
-# 仪表控制 Skill (UTG962 + SDS824X HD + UT61E)
+# 仪表控制 Skill (UTG962 + SDS824X HD + UT61E + UT612)
 
 ## 环境准备
 
@@ -15,12 +15,12 @@ source .venv/bin/activate
 ## 核心库
 
 ```python
-from instruments import awg, scope, dmm      # 仪器驱动
+from instruments import awg, scope, dmm, lcr # 仪器驱动
 from experiments.q_measure import measure_q   # Q 值实验
 ```
 
 CLI 入口：
-- `python -m instruments.cli awg|scope|dmm ...`（仪器控制）
+- `python -m instruments.cli awg|scope|dmm|lcr ...`（仪器控制）
 - `python -m experiments.cli q-measure|q-sweep ...`（实验）
 
 ---
@@ -37,6 +37,7 @@ CLI 入口：
 6. **波形换算**：`V = int8(code) × (vdiv / code_per_div_8bit) - offset`，PREAMBLE 读取 `code_per_div/adc_bits`
 7. **读波形冻结采集**：`:WAVeform:DATA?` 使示波器 STOP，`get_waveform()` 已内置恢复
 8. **UT61E 走串口而不是 USBTMC**：`19200 7O1`，`DTR=1`、`RTS=0`，默认从 `UT61E_PORT` 环境变量找端口
+9. **UT612 走 CP2110 HID 而不是普通串口**：VID/PID `10c4:ea80`，HID feature report 配置 UART `9600 8N1`，读取 17 字节 LCR 测量帧
 
 ---
 
@@ -145,6 +146,28 @@ Python:
 python -c "
 from instruments import dmm
 r = dmm.read_once()
+print(r.display)
+"
+```
+
+---
+
+## UT612 LCR 电桥
+
+适合做 L/C/R/ESR/Q/D/theta 标定：线圈电感与 Q、可变电容容量范围、蛛网天线材料和结构对损耗的影响。动态扫频、耦合、TDR 仍由 AWG + Scope 完成。
+
+```bash
+python -m instruments.cli lcr status
+python -m instruments.cli lcr read
+python -m instruments.cli lcr monitor --dedupe
+```
+
+Python:
+
+```bash
+python -c "
+from instruments import lcr
+r = lcr.read_once()
 print(r.display)
 "
 ```

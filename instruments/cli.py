@@ -138,6 +138,29 @@ def time_str(timestamp: float) -> str:
     return _t.strftime("%H:%M:%S", _t.localtime(timestamp))
 
 
+def cmd_lcr(args):
+    from . import lcr
+    if args.action == "status":
+        print(json.dumps(lcr.status(), ensure_ascii=False, indent=2))
+    elif args.action == "list":
+        print(json.dumps(lcr.list_devices(), ensure_ascii=False, indent=2))
+    elif args.action == "read":
+        print(json.dumps(lcr.read_once(args.timeout).as_dict(), ensure_ascii=False, indent=2))
+    elif args.action == "monitor":
+        import time as _t
+        try:
+            last = None
+            while True:
+                reading = lcr.read_once(args.timeout)
+                key = reading.raw_hex if args.dedupe else None
+                if key != last:
+                    print("%s  %s" % (time_str(reading.timestamp), reading.display), flush=True)
+                    last = key
+                _t.sleep(args.interval)
+        except KeyboardInterrupt:
+            print()
+
+
 def main(argv=None):
     global _InstrumentError
     from ._backend import InstrumentError as _InstrumentError
@@ -172,6 +195,14 @@ def main(argv=None):
     p_dmm.add_argument("--timeout", type=float, default=2.0, help="读取超时秒数")
     p_dmm.add_argument("--interval", type=float, default=1.0, help="monitor 输出间隔秒数")
     p_dmm.set_defaults(func=cmd_dmm)
+
+    # LCR
+    p_lcr = sub.add_parser("lcr", help="UT612 LCR 电桥")
+    p_lcr.add_argument("action", choices=["status", "list", "read", "monitor"])
+    p_lcr.add_argument("--timeout", type=float, default=2.0, help="读取超时秒数")
+    p_lcr.add_argument("--interval", type=float, default=1.0, help="monitor 输出间隔秒数")
+    p_lcr.add_argument("--dedupe", action="store_true", help="monitor 时跳过重复帧")
+    p_lcr.set_defaults(func=cmd_lcr)
 
     args = parser.parse_args(argv)
     try:

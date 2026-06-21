@@ -1,6 +1,6 @@
 # ai-instruments
 
-用 **UNI-T UTG962 信号发生器**、**Siglent SDS824X HD 示波器** 和 **UNI-T UT61E 万用表**搭建的电磁学自学实验工作台。
+用 **UNI-T UTG962 信号发生器**、**Siglent SDS824X HD 示波器**、**UNI-T UT61E 万用表** 和 **UNI-T UT612 LCR 电桥**搭建的电磁学自学实验工作台。
 
 项目已经从简单的仪器脚本扩展为一个半自动 Web 实验平台：平台负责仪器预设、采样、分析、拟合、截图和记录；移动线圈/天线、插拔铁芯、切换二极管、改变接线等步骤由界面引导手动完成。
 
@@ -12,6 +12,7 @@
 - AWG/Scope 预设、Scope Auto Set、AWG/Scope 屏幕截图
 - Scope 多通道控制与状态刷新
 - UT61E 万用表单次读数与串口状态显示，用于低速/DC/基础元件读数
+- UT612 LCR 电桥单次读数与 HID 状态显示，用于 L/C/R/Q/ESR/theta 元件标定
 - CSV/JSON 本地实验记录导出
 - 无数据库，实验记录保存在浏览器 `localStorage`
 
@@ -68,8 +69,9 @@
 | `awg` | UNI-T UTG962 | `USB0::0x6656::0x0834::1021472514::INSTR` |
 | `scope` | Siglent SDS824X HD | `USB0::0xF4EC::0x1017::SDS08A0C801504::INSTR` |
 | `dmm` | UNI-T UT61E | 光电串口，默认从 `UT61E_PORT` 环境变量读取 |
+| `lcr` | UNI-T UT612 | CP2110 HID USB-to-UART，VID/PID `10c4:ea80` |
 
-AWG 和 Scope 是 USBTMC，用 `pyvisa-py + libusb` 控制，**无需 NI-VISA**。UT61E 通过串口读取，参数为 `19200 bps / 7 data bits / odd parity / 1 stop bit`，`DTR=1`、`RTS=0`。
+AWG 和 Scope 是 USBTMC，用 `pyvisa-py + libusb` 控制，**无需 NI-VISA**。UT61E 通过串口读取，参数为 `19200 bps / 7 data bits / odd parity / 1 stop bit`，`DTR=1`、`RTS=0`。UT612 不是普通串口，它通过 Silicon Labs CP2110 HID 桥接芯片读取，Python 侧使用 `hidapi`。
 
 ## 安装
 
@@ -79,7 +81,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-依赖包括 `pyvisa`、`pyvisa-py`、`pyusb`、`libusb`、`numpy`、`matplotlib`、`Pillow` 等。
+依赖包括 `pyvisa`、`pyvisa-py`、`pyusb`、`libusb`、`pyserial`、`hidapi`、`numpy`、`matplotlib`、`Pillow` 等。
 
 ## 启动 Web 工作台
 
@@ -126,6 +128,11 @@ python -m instruments.cli dmm status
 python -m instruments.cli dmm read
 python -m instruments.cli dmm monitor --interval 1
 
+# UT612 LCR
+python -m instruments.cli lcr status
+python -m instruments.cli lcr read
+python -m instruments.cli lcr monitor --dedupe
+
 # 中波 LC 扫频测 Q
 python -m experiments.cli q-measure --f-start 535k --f-stop 1605k \
     --amp 1 --vdiv 500m --load 50 --fine 50 -o output/q.png
@@ -136,13 +143,14 @@ python -m experiments.cli q-measure --f-start 535k --f-stop 1605k \
 ## Python 库调用
 
 ```python
-from instruments import awg, dmm, scope
+from instruments import awg, dmm, lcr, scope
 from experiments.q_measure import measure_q
 
 awg.configure(1, wave="sine", frequency=1e6, amplitude=2, load=10000, output=True)
 stats = scope.waveform_stats(1)
 img = scope.screenshot("PNG")
 reading = dmm.read_once()
+lcr_reading = lcr.read_once()
 
 result = measure_q(
     f_start=535e3,
@@ -163,6 +171,7 @@ print(f"f0 = {result.f0/1e3:.1f} kHz, Q = {result.q:.1f}")
 - **截图读取较慢**：SDS 和 AWG 截图都需要循环读完整图像数据，Web 上将“应用仪器预设”和“抓取屏幕”分开执行。
 - **TDR 的关键不是重复频率**：AWG 方波重复频率默认 `100 kHz`，用于让反射不和下一次边沿重叠；可分辨性主要取决于上升沿、线长和示波器时基。
 - **UT61E 是慢速读数仪表**：适合电阻、直流电压、二极管压降、电容等基础量的辅助确认；高速波形、相位、Q、TDR 仍由示波器完成。
+- **UT612 是 LCR 标定仪表**：适合在线圈、可变电容、蛛网天线材料实验前测 L/C/R/ESR/Q/D/theta；它使用 HID，不会稳定表现为 `/dev/tty.*`。
 
 ## 目录结构
 
@@ -172,7 +181,8 @@ instruments/                 # 纯仪器驱动层
   awg.py                      # UTG962 写命令与截图
   scope.py                    # SDS824X HD 控制、波形、截图
   dmm.py                      # UT61E 串口读数解析
-  cli.py                      # awg/scope/dmm CLI
+  lcr.py                      # UT612 CP2110 HID LCR 读数解析
+  cli.py                      # awg/scope/dmm/lcr CLI
 
 experiments/                 # 实验应用层
   profiles.py                 # 材料与实验配置

@@ -9,7 +9,7 @@ source .venv/bin/activate   # Python 3.14, pyvisa-py + libusb (无需 NI-VISA)
 ```
 
 CLI 入口：
-- `python -m instruments.cli awg|scope|dmm ...`（仪器控制）
+- `python -m instruments.cli awg|scope|dmm|lcr ...`（仪器控制）
 - `python -m experiments.cli q-measure|q-sweep ...`（实验）
 
 ## 架构分层
@@ -20,6 +20,7 @@ instruments/          # 核心库：纯仪器驱动（可独立复用）
 ├── awg.py            # UTG962 信号发生器 (SCPI 写命令, 无查询)
 ├── scope.py          # SDS824X HD 示波器 (SCPI 读/写 + 波形换算)
 ├── dmm.py            # UT61E 万用表 (串口读数解析)
+├── lcr.py            # UT612 LCR 电桥 (CP2110 HID 读数解析)
 ├── cli.py            # awg/scope CLI 入口
 └── __init__.py
 
@@ -38,6 +39,7 @@ experiments/          # 应用层：电磁学实验（依赖 instruments）
 | `awg` | UNI-T UTG962 | `USB0::0x6656::0x0834::1021472514::INSTR` |
 | `scope` | Siglent SDS824X HD | `USB0::0xF4EC::0x1017::SDS08A0C801504::INSTR` |
 | `dmm` | UNI-T UT61E | 光电串口，默认读 `UT61E_PORT` |
+| `lcr` | UNI-T UT612 | CP2110 HID USB-to-UART，VID/PID `10c4:ea80` |
 
 ### 必须遵守的约束
 
@@ -48,6 +50,7 @@ experiments/          # 应用层：电磁学实验（依赖 instruments）
 5. **PNG 截图分包** — SDS `:PRINt?` 返回的图像跨多个 USBTMC 包，`read_raw()` 在单包边界返回，必须循环读到 `IEND`。AWG `:DISPlay?` 同理，循环读到 `BM`+bmp_size。
 6. **AWG 截图是 BMP 左右镜像** — `awg.screenshot()` 自动用 PIL `FLIP_LEFT_RIGHT` 翻正并转 PNG。
 7. **UT61E 是串口慢速读数** — 使用 `19200 7O1`、`DTR=1`、`RTS=0`，适合电阻/直流/二极管/电容等基础读数，不用于高速采样。
+8. **UT612 是 HID LCR 电桥** — 使用 Silicon Labs CP2110，配置 UART `9600 8N1` 后读取 17 字节帧；适合 L/C/R/ESR/Q/D/theta 标定，不是普通 `/dev/tty.*` 串口。
 
 ## 常用命令
 
@@ -66,6 +69,10 @@ python -m instruments.cli scope waveform -p w.csv -c 1
 export UT61E_PORT=/dev/tty.usbserial-xxxx
 python -m instruments.cli dmm status
 python -m instruments.cli dmm read
+
+# LCR
+python -m instruments.cli lcr status
+python -m instruments.cli lcr read
 
 # Q 值（自适应步长, 粗扫+细扫两阶段, ~30秒)
 python -m experiments.cli q-measure --f-start 535k --f-stop 1605k \

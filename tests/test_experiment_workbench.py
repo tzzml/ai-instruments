@@ -390,6 +390,9 @@ class ExperimentProfilesTest(unittest.TestCase):
         self.assertIn('id="dmmReadout"', html)
         self.assertIn("/api/dmm/read", html)
         self.assertIn("refreshDmmStatus", html)
+        self.assertIn('id="lcrReadout"', html)
+        self.assertIn("/api/lcr/read", html)
+        self.assertIn("refreshLcrStatus", html)
         self.assertIn("renderAwgChannels", html)
         self.assertIn("renderScopeChannels", html)
         self.assertIn("/api/panel/status", html)
@@ -429,6 +432,56 @@ class DmmTest(unittest.TestCase):
         self.assertTrue(st["configured"])
         self.assertEqual(st["port"], "/dev/tty.usbserial-test")
         self.assertIn("/dev/tty.usbserial-test", st["candidates"])
+
+
+class LcrTest(unittest.TestCase):
+    def test_ut612_parser_decodes_reference_resistance_theta_frame(self):
+        from instruments import lcr
+
+        frame = bytes([
+            0x00, 0x0D, 0x60, 0x58, 0x00, 0x03, 0x13, 0x90, 0x14,
+            0x00, 0x04, 0x00, 0x00, 0x71, 0x80, 0x0D, 0x0A,
+        ])
+        reading = lcr.decode_frame(frame, timestamp=123.0)
+
+        self.assertEqual(reading.main_mode, "Rs")
+        self.assertEqual(reading.frequency, "1KHz")
+        self.assertEqual(reading.frequency_hz, 1000.0)
+        self.assertEqual(reading.primary.text, "0.5008 kOhm")
+        self.assertAlmostEqual(reading.primary.value, 0.5008)
+        self.assertEqual(reading.secondary_mode, "theta")
+        self.assertEqual(reading.secondary.text, "0.0 Deg")
+        self.assertTrue(reading.flags["auto"])
+        self.assertFalse(reading.flags["parallel"])
+        self.assertEqual(reading.timestamp, 123.0)
+
+    def test_ut612_parser_decodes_parallel_capacitance_and_ol_secondary(self):
+        from instruments import lcr
+
+        frame = bytes([
+            0x00, 0x0D, 0x80, 0x58, 0x00, 0x02, 0x01, 0x33, 0x49,
+            0x00, 0x01, 0x4E, 0x20, 0x01, 0xC3, 0x0D, 0x0A,
+        ])
+        reading = lcr.decode_frame(frame)
+
+        self.assertEqual(reading.main_mode, "Cp")
+        self.assertEqual(reading.primary.text, "30.7 pF")
+        self.assertEqual(reading.secondary_mode, "D")
+        self.assertEqual(reading.secondary.text, "OL")
+        self.assertTrue(reading.flags["parallel"])
+
+    def test_ut612_frame_drain_resynchronizes_from_noise(self):
+        from instruments import lcr
+
+        frame = bytes([
+            0x00, 0x0D, 0x40, 0x58, 0x00, 0x01, 0x00, 0x64, 0x29,
+            0x00, 0x02, 0x00, 0x01, 0x04, 0x80, 0x0D, 0x0A,
+        ])
+        buf = bytearray(b"noise" + frame)
+        frames = lcr.drain_frames(buf)
+
+        self.assertEqual(frames, [frame])
+        self.assertEqual(buf, bytearray())
 
 
 class QBoundaryTest(unittest.TestCase):
@@ -684,6 +737,11 @@ class ApiContractTest(unittest.TestCase):
                  "online": False,
                  "configured": True,
                  "port": "/dev/tty.usbserial-test",
+             }), \
+             mock.patch.object(web_server.lcr, "status", return_value={
+                 "online": True,
+                 "configured": True,
+                 "devices": [{"product": "CP2110 HID USB-to-UART Bridge"}],
              }):
             out = handler._handle_get_api("/api/panel/status", {})
 
@@ -693,6 +751,7 @@ class ApiContractTest(unittest.TestCase):
         self.assertEqual(len(out["scope"]["channels"]), 4)
         self.assertEqual(out["scope"]["state_source"], "instrument_query")
         self.assertEqual(out["dmm"]["port"], "/dev/tty.usbserial-test")
+        self.assertTrue(out["lcr"]["online"])
 
     def test_dmm_read_endpoint_uses_dmm_driver(self):
         from experiments import web_server
@@ -722,6 +781,31 @@ class ApiContractTest(unittest.TestCase):
         read_once.assert_called_once_with("/dev/tty.usbserial-test", 0.5)
         self.assertTrue(out["ok"])
         self.assertEqual(out["reading"]["display"], "0.5432 V")
+
+    def test_lcr_read_endpoint_uses_lcr_driver(self):
+        from experiments import web_server
+        from instruments.lcr import DisplayValue, LCRReading
+
+        handler = self._handler()
+        fake = LCRReading(
+            raw_hex="00 0d",
+            frequency="1KHz",
+            frequency_hz=1000.0,
+            battery_level=3,
+            flags={"auto": True, "lcr": True, "parallel": False},
+            sorting_tolerance="",
+            main_mode="Ls",
+            secondary_mode="Q",
+            primary=DisplayValue("numeric", 100, 1, "uH", "10.0 uH", 10.0, False),
+            secondary=DisplayValue("numeric", 1, 3, "", "0.001", 0.001, True),
+            timestamp=1.0,
+        )
+        with mock.patch.object(web_server.lcr, "read_once", return_value=fake) as read_once:
+            out = handler._handle_post("/api/lcr/read", {"timeout": 0.5})
+
+        read_once.assert_called_once_with(0.5)
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["reading"]["display"], "Ls 1KHz 10.0 uH | Q 0.001 [Auto LCR]")
 
 
 if __name__ == "__main__":

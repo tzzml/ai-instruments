@@ -13,7 +13,7 @@ import http.server
 import urllib.parse
 import numpy as np
 from instruments import _backend as bk
-from instruments import awg, dmm, scope
+from instruments import awg, dmm, lcr, scope
 from experiments.analysis import (
     analyze_impedance_point,
     analyze_propagation_4ch,
@@ -98,6 +98,9 @@ class ExperimentAPI(http.server.SimpleHTTPRequestHandler):
 
         if path == "/api/dmm/status":
             return {"ok": True, "dmm": dmm.status(params.get("port", [None])[0])}
+
+        if path == "/api/lcr/status":
+            return {"ok": True, "lcr": lcr.status()}
 
         if path == "/api/awg/screenshot":
             return {"content_type": "image/png", "bytes": awg.screenshot()}
@@ -251,6 +254,10 @@ class ExperimentAPI(http.server.SimpleHTTPRequestHandler):
             reading = dmm.read_once(port, float(body.get("timeout", 2.0))).as_dict()
             return {"ok": True, "valid": reading["data_valid"], "reading": reading}
 
+        if path == "/api/lcr/read":
+            reading = lcr.read_once(float(body.get("timeout", 2.0))).as_dict()
+            return {"ok": True, "valid": reading["primary"]["code"] == "numeric", "reading": reading}
+
         # ---- Scope: 配置 (只改提交字段) ----
         if path == "/api/scope/config":
             ch = int(body.get("channel", 1))
@@ -337,6 +344,15 @@ def _panel_status():
             "online": False,
             "configured": False,
             "state_source": "serial",
+            "error": str(e)[:120],
+        }
+    try:
+        out["lcr"] = lcr.status()
+    except Exception as e:
+        out["lcr"] = {
+            "online": False,
+            "configured": False,
+            "state_source": "hid",
             "error": str(e)[:120],
         }
     return out

@@ -395,6 +395,8 @@ class ExperimentProfilesTest(unittest.TestCase):
         self.assertIn("refreshLcrStatus", html)
         self.assertIn("万用表 UT61E", html)
         self.assertIn("LCR 电桥 UT612", html)
+        self.assertIn("meter-layout", html)
+        self.assertGreaterEqual(html.count("meter-section"), 2)
         self.assertNotIn("低速测量仪表", html)
         self.assertNotIn("meter-grid", html)
         self.assertIn("renderAwgChannels", html)

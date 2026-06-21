@@ -13,11 +13,11 @@ input,select{background:var(--card2);border:1px solid var(--line);border-radius:
 .layout{display:grid;grid-template-columns:1fr 1.25fr;gap:12px;margin-top:12px}.section{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px}.section h2{margin:0 0 10px;font-size:15px;color:var(--blue);display:flex;justify-content:space-between;gap:10px}.hint{color:var(--mut);font-size:11px;line-height:1.5}.channel-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.scope-grid{grid-template-columns:repeat(4,minmax(180px,1fr))}
 .channel-card{background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:10px}.channel-card header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}.channel-title{font-weight:700}.state{font-size:11px;color:var(--mut)}.state.on{color:var(--green)}.state.err{color:var(--red)}
 .row{display:grid;grid-template-columns:58px minmax(0,1fr);gap:6px;align-items:center;margin:6px 0}.row label{color:var(--mut);font-size:12px}.row.two{grid-template-columns:58px 1fr 1fr}.btns{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.toggle{display:inline-flex;gap:5px;align-items:center;color:var(--mut)}.toggle input{min-width:auto}
-.meter-panel{display:grid;grid-template-columns:minmax(260px,1fr) minmax(260px,1fr);gap:10px}.meter-readout{background:#050b12;border:1px solid var(--line);border-radius:6px;min-height:96px;display:flex;align-items:center;justify-content:center;font:700 24px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--green);text-align:center;padding:12px}.meter-meta{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--mut);word-break:break-all}
+.meter-layout{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}.meter-section .meter-panel{display:grid;grid-template-columns:minmax(220px,1fr) minmax(170px,.75fr);gap:10px}.meter-section .meter-readout{background:#050b12;border:1px solid var(--line);border-radius:6px;min-height:76px;display:flex;align-items:center;justify-content:center;font:700 20px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--green);text-align:center;padding:10px}.meter-meta{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--mut);word-break:break-all}
 .screens{display:grid;grid-template-columns:1fr 1fr;gap:10px}.screen-frame{aspect-ratio:16/9;background:#050b12;border:1px solid var(--line);border-radius:6px;display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--mut)}.screen-frame img{width:100%;height:100%;object-fit:contain}
 .wave{margin-top:12px}.ctrl{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:8px}.chbox{display:inline-flex;gap:4px;align-items:center;cursor:pointer}.sw{width:10px;height:10px;border-radius:2px}canvas{width:100%;height:320px;background:#08111c;border:1px solid var(--line);border-radius:5px;display:block}
 .toast{position:fixed;right:16px;bottom:16px;background:var(--card2);border:1px solid var(--line);padding:10px 14px;border-radius:7px;opacity:0;transition:.2s;max-width:360px;z-index:10}.toast.show{opacity:1}.toast.err{border-color:var(--red);color:var(--red)}.toast.ok{border-color:var(--green);color:var(--green)}
-@media(max-width:1200px){.layout{grid-template-columns:1fr}.scope-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:720px){.channel-grid,.scope-grid,.screens,.meter-panel{grid-template-columns:1fr}}
+@media(max-width:1200px){.layout{grid-template-columns:1fr}.scope-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.meter-layout{grid-template-columns:1fr}}@media(max-width:720px){.channel-grid,.scope-grid,.screens,.meter-section .meter-panel{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -55,35 +55,37 @@ input,select{background:var(--card2);border:1px solid var(--line);border-radius:
   </section>
 </div>
 
-<section class="section" style="margin-top:12px">
-  <h2>万用表 UT61E <span class="hint">电阻、电压、二极管压降、电容等低速读数</span></h2>
-  <div class="meter-panel">
-    <div>
-      <div class="row"><label>串口</label><input id="dmmPort" placeholder="/dev/tty.usbserial-xxxx 或留空用 UT61E_PORT"></div>
-      <div class="btns"><button class="primary" onclick="dmmRead()">读 DMM</button><button onclick="refreshDmmStatus()">刷新状态</button></div>
-      <div class="hint" id="dmmHint" style="margin-top:8px">UT61E：电阻、电压、二极管压降、电容等低速读数。</div>
+<div class="meter-layout">
+  <section class="section meter-section">
+    <h2>万用表 UT61E <span class="hint">电阻、电压、二极管压降、电容</span></h2>
+    <div class="meter-panel">
+      <div>
+        <div class="row"><label>串口</label><input id="dmmPort" placeholder="/dev/tty.usbserial-xxxx 或留空用 UT61E_PORT"></div>
+        <div class="btns"><button class="primary" onclick="dmmRead()">读 DMM</button><button onclick="refreshDmmStatus()">刷新状态</button></div>
+        <div class="hint" id="dmmHint" style="margin-top:8px">UT61E：低速/DC/基础元件读数。</div>
+      </div>
+      <div>
+        <div class="meter-readout" id="dmmReadout">未读取</div>
+        <div class="meter-meta" id="dmmMeta">-</div>
+      </div>
     </div>
-    <div>
-      <div class="meter-readout" id="dmmReadout">未读取</div>
-      <div class="meter-meta" id="dmmMeta">-</div>
-    </div>
-  </div>
-</section>
+  </section>
 
-<section class="section" style="margin-top:12px">
-  <h2>LCR 电桥 UT612 <span class="hint">测 L/C/R/Q/ESR/theta 和测试频率</span></h2>
-  <div class="meter-panel">
-    <div>
-      <div class="row"><label>设备</label><input id="lcrDevice" disabled value="CP2110 HID 10c4:ea80"></div>
-      <div class="btns"><button class="primary" onclick="lcrRead()">读 LCR</button><button onclick="refreshLcrStatus()">刷新状态</button></div>
-      <div class="hint" id="lcrHint" style="margin-top:8px">UT612：请在仪表上打开 USB 模式；读取 L/C/R/Q/ESR/theta 和测试频率。</div>
+  <section class="section meter-section">
+    <h2>LCR 电桥 UT612 <span class="hint">L/C/R/Q/ESR/theta</span></h2>
+    <div class="meter-panel">
+      <div>
+        <div class="row"><label>设备</label><input id="lcrDevice" disabled value="CP2110 HID 10c4:ea80"></div>
+        <div class="btns"><button class="primary" onclick="lcrRead()">读 LCR</button><button onclick="refreshLcrStatus()">刷新状态</button></div>
+        <div class="hint" id="lcrHint" style="margin-top:8px">UT612：打开 USB 模式后读取测试频率和元件参数。</div>
+      </div>
+      <div>
+        <div class="meter-readout" id="lcrReadout">未读取</div>
+        <div class="meter-meta" id="lcrMeta">-</div>
+      </div>
     </div>
-    <div>
-      <div class="meter-readout" id="lcrReadout">未读取</div>
-      <div class="meter-meta" id="lcrMeta">-</div>
-    </div>
-  </div>
-</section>
+  </section>
+</div>
 
 <section class="section" style="margin-top:12px">
   <h2>仪器屏幕截图 <span class="hint">截图独立执行，方便核对真实面板</span></h2>
